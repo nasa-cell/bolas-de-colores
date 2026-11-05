@@ -13,7 +13,7 @@ Desarrollado en un **único archivo independiente** ([`index.html`](index.html))
 | Función | Qué hace |
 | :--- | :--- |
 | **Celular como cámara** | Botón **«Iniciar celular»**: se escanea un QR y el celular hace de cámara, aunque esté en otra WiFi o con datos. Funciona en vertical y horizontal. |
-| **Varios colores a la vez** | Detecta amarillo, verde limón, rosado fuerte, rosado pálido, naranja y celeste sin configurar nada, y solo cosas con forma de Post-it. |
+| **Varios colores a la vez** | Detecta amarillo, verde limón, verde, rosado fuerte, rosado pálido, naranja, celeste, lila y morado sin configurar nada, y solo cosas con forma de Post-it. |
 | **Marco verde en el celular** | El celular marca en vivo cada Post-it que detecta la PC. |
 | **Subir foto** | Usa una foto en vez de la cámara para buscar Post-its, con miniatura en la esquina. |
 | **Pintar colores** | Cada bolita toma el color real del Post-it con que choca. |

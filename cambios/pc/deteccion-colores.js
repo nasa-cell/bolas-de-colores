@@ -3,7 +3,8 @@
   ------------------------------------
   La app original busca UN solo color (por defecto amarillo). Este archivo
   hace que busque varios colores de Post-it al mismo tiempo, sin configurar
-  nada: amarillo, verde limón, rosado fuerte, rosado pálido, naranja y celeste.
+  nada: amarillo, verde limón, verde, rosado fuerte, rosado pálido, naranja,
+  celeste, lila y morado.
 
   Lo carga index.html con una línea. Si se borra esa línea, la app vuelve a
   detectar un solo color como antes.
@@ -25,14 +26,24 @@
      minV = brillo mínimo %
      muestra = color del botón en pantalla                                   */
   const COLORES_BASE = [
-    { id: 'amarillo', nombre: 'Amarillo',      h: 55,  tol: 16, minS: 30, maxS: 100, minV: 45, muestra: '#facc15' },
+    // Amarillo empieza en 45° para dejarle 17°-44° al naranja.
+    { id: 'amarillo', nombre: 'Amarillo',      h: 57,  tol: 12, minS: 30, maxS: 100, minV: 45, muestra: '#facc15' },
     { id: 'verde',    nombre: 'Verde limón',   h: 85,  tol: 24, minS: 20, maxS: 100, minV: 40, muestra: '#a3e635' },
-    { id: 'rosado',   nombre: 'Rosado fuerte', h: 315, tol: 30, minS: 18, maxS: 100, minV: 50, muestra: '#f472b6' },
+    // Verde claro (menta): en foto real mide 121°, 22% de color.
+    { id: 'verdeclaro', nombre: 'Verde',       h: 125, tol: 15, minS: 14, maxS: 100, minV: 55, muestra: '#86efac' },
+    { id: 'rosado',   nombre: 'Rosado fuerte', h: 315, tol: 30, minS: 23, maxS: 100, minV: 50, muestra: '#f472b6' },
+    // Rosado fuerte desde 23% de color y pálido hasta 22%: sin hueco ni cruce.
+    // Antes se cruzaban y un Post-it pálido (18% de color) salía partido en 2.
     // El pálido es casi blanco: solo cuenta si es muy claro y de tono rosado/lila.
     // Así no se confunde con paredes, madera o enchufes blancos-azulados.
     { id: 'palido',   nombre: 'Rosado pálido', h: 290, tol: 35, minS: 6,  maxS: 22,  minV: 78, muestra: '#f5d0fe' },
-    { id: 'naranja',  nombre: 'Naranja',       h: 24,  tol: 12, minS: 50, maxS: 100, minV: 55, muestra: '#fb923c' },
-    { id: 'celeste',  nombre: 'Celeste',       h: 190, tol: 18, minS: 30, maxS: 100, minV: 50, muestra: '#38bdf8' }
+    // Naranja: el claro mide 39°, 32% de color, brillo 87%. La madera tiene
+    // el mismo tono pero menos de 25% de color, por eso minS 26 y minV 65.
+    { id: 'naranja',  nombre: 'Naranja',       h: 30,  tol: 14, minS: 26, maxS: 100, minV: 65, muestra: '#fb923c' },
+    { id: 'celeste',  nombre: 'Celeste',       h: 190, tol: 18, minS: 30, maxS: 100, minV: 50, muestra: '#38bdf8' },
+    // Lila: claro y poco color. Si tiene menos de 23% de color lo toma «Rosado pálido».
+    { id: 'lila',     nombre: 'Lila',          h: 270, tol: 18, minS: 23, maxS: 45,  minV: 60, muestra: '#c4b5fd' },
+    { id: 'morado',   nombre: 'Morado',        h: 275, tol: 20, minS: 45, maxS: 100, minV: 25, muestra: '#8b5cf6' }
   ];
 
   /* ---------- 2. Guardar y leer ---------- */

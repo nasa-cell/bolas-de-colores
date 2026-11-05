@@ -112,8 +112,8 @@ Si se borran esas líneas, la app vuelve a ser exactamente como antes.
 
 ## Detección de varios colores (`pc/deteccion-colores.js`)
 
-- **Por defecto, sin configurar**, busca 6 colores a la vez: amarillo, verde limón, rosado fuerte,
-  rosado pálido, naranja y celeste.
+- **Por defecto, sin configurar**, busca 9 colores a la vez: amarillo, verde limón, verde, rosado fuerte,
+  rosado pálido, naranja (también el naranja claro), celeste, lila y morado.
 - **Solo Post-its:** además del color, revisa la forma. Se descarta lo que no parece un Post-it:
   - manchas chicas (brillos, puntitos);
   - rayas largas (vetas de madera, cables, bordes);
@@ -124,7 +124,7 @@ Si se borran esas líneas, la app vuelve a ser exactamente como antes.
   - «Un solo color (como antes)» vuelve al modo original;
   - «Clonar Color de Tarjeta Enfocada» **agrega** el color clonado a la lista (se quita tocando su ✕).
 - Lo elegido se recuerda al recargar la página.
-- Probado con una foto real (3 Post-its sobre madera): detecta los 3 y nada más.
+- Probado con fotos reales sobre madera: 3 Post-its (detecta los 3) y 5 Post-its con naranja claro y verde (detecta los 5), sin confundir la madera ni el enchufe. Lila y morado probados con una foto retocada.
 
 Los valores de cada color están al inicio del archivo (`COLORES_BASE`), y los del filtro de forma
 en `AREA_MINIMA`, `PROPORCION_MIN/MAX` y `RELLENO_MIN`, con comentarios.
