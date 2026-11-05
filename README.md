@@ -6,6 +6,8 @@ Desarrollado en un **único archivo independiente** ([`index.html`](index.html))
 
 ---
 
+**Abrir en línea:** https://bolas-de-colores.onrender.com (plan gratis: si estuvo sin uso, la primera visita tarda ~1 minuto en cargar).
+
 ## Novedades (carpeta [`cambios`](cambios/LEEME.md))
 
 | Función | Qué hace |
