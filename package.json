@@ -1,0 +1,11 @@
+{
+  "name": "bolas-de-colores",
+  "private": true,
+  "description": "Proyección interactiva con Post-its; el celular puede hacer de cámara.",
+  "scripts": {
+    "start": "node cambios/servidor/servidor.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

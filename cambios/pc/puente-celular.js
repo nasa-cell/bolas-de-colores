@@ -337,7 +337,9 @@
       return;
     }
     estadoVentana('Preparando enlace…');
-    conexion = new WebSocket('ws://' + location.host + '/ws?rol=pc');
+    // https (Render) necesita conexión segura wss://; en la PC (http) basta ws://
+    const protocolo = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    conexion = new WebSocket(protocolo + location.host + '/ws?rol=pc');
     conexion.binaryType = 'blob';
     let llegoAlgo = false;
 

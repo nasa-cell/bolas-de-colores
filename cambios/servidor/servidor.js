@@ -8,6 +8,10 @@
    3. Pasa las fotos que manda el celular a la app de la PC (por WebSocket).
 
   Se arranca con cambios\iniciar.cmd (o: node servidor\servidor.js). No necesita npm install.
+
+  MODO NUBE (Render): si existe la variable PORT, el servidor está publicado en
+  internet. Entonces escucha en el puerto que da Render, NO abre túnel (Render ya
+  da un link https fijo) y deja ver la app completa.
 */
 
 const http = require('http');
@@ -16,14 +20,15 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 
-const PUERTO = Number(process.env.PUERTO) || 8080; // se puede cambiar con la variable PUERTO
+const EN_NUBE = Boolean(process.env.PORT);           // Render pone la variable PORT
+const PUERTO = Number(process.env.PORT || process.env.PUERTO) || 8080;
 // Este archivo está en posits2/cambios/servidor/
 const CARPETA_APP = path.resolve(__dirname, '..', '..');                    // la carpeta posits2
 const CLOUDFLARED = path.resolve(__dirname, '..', 'herramientas', 'cloudflared.exe');
 const PAGINA_CELULAR = '/cambios/celular/celular.html';
 
-// Estado del túnel: el link público cuando ya está listo.
-let enlacePublico = null;
+// Link público: en la nube lo da Render (fijo); en la PC, el túnel cuando ya está listo.
+let enlacePublico = EN_NUBE ? (process.env.RENDER_EXTERNAL_URL || null) : null;
 let problemaTunel = null;      // texto si el túnel no pudo arrancar
 
 // Cada "sala" une una PC con un celular. La clave es el código que va en el QR.
@@ -39,14 +44,19 @@ const TIPOS = {
   '.md': 'text/plain; charset=utf-8'
 };
 
-// Lo que llega por el túnel trae la cabecera "cf-ray" de Cloudflare.
-// Desde internet solo se deja ver la página del celular, nada más.
+// En la PC: lo que llega por el túnel trae la cabecera "cf-ray" de Cloudflare, y desde
+// internet solo se deja ver la página del celular. En la nube la app es pública: sin límite.
 function vieneDeInternet(req) {
-  return Boolean(req.headers['cf-ray']);
+  return !EN_NUBE && Boolean(req.headers['cf-ray']);
 }
 
 const servidor = http.createServer((req, res) => {
   const ruta = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+
+  // Nunca se muestran archivos ocultos (.git, .gitignore) ni el código del servidor
+  if (ruta.split('/').some(parte => parte.startsWith('.')) || ruta.startsWith('/cambios/servidor/')) {
+    res.writeHead(404); return res.end('No encontrado');
+  }
 
   if (vieneDeInternet(req) && ruta !== PAGINA_CELULAR) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -269,6 +279,16 @@ function abrirTunel() {
   process.on('exit', () => { try { tunel.kill(); } catch (e) {} });
 }
 
+// Latido: cada 25 s se manda un "ping" a cada conexión. Así Render y el túnel
+// no cortan las conexiones que están quietas (por ejemplo, la PC esperando el QR).
+setInterval(() => {
+  for (const sala of salas.values()) {
+    for (const con of [sala.pc, sala.celular]) {
+      if (con && con.abierta) { try { con.socket.write(cabeceraMarco(9, 0)); } catch (e) {} }
+    }
+  }
+}, 25000);
+
 function avisarPCs() {
   for (const [codigo, sala] of salas) sala.pc.enviarJSON(estadoParaPC(codigo));
 }
@@ -285,8 +305,9 @@ servidor.on('error', (err) => {
 });
 
 // Solo escucha en esta PC (127.0.0.1). Desde fuera se entra únicamente por el túnel.
-servidor.listen(PUERTO, '127.0.0.1', () => {
-  console.log('App lista en http://localhost:' + PUERTO);
-  if (!process.argv.includes('--sin-tunel')) abrirTunel();
+// En la nube escucha a todos (0.0.0.0) porque Render le pasa las visitas.
+servidor.listen(PUERTO, EN_NUBE ? '0.0.0.0' : '127.0.0.1', () => {
+  console.log(EN_NUBE ? 'App publicada en ' + (enlacePublico || 'Render') : 'App lista en http://localhost:' + PUERTO);
+  if (!EN_NUBE && !process.argv.includes('--sin-tunel')) abrirTunel();
   if (process.argv.includes('--abrir')) exec('start "" "http://localhost:' + PUERTO + '/"');
 });

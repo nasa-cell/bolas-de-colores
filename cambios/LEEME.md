@@ -4,7 +4,15 @@ Aquí está **todo el código nuevo**. Con esto, el celular hace de cámara de l
 se escanea un QR y la app usa lo que filma el celular, como si fuera la webcam.
 Funciona aunque el celular esté en otra WiFi o con datos móviles.
 
-## Cómo se usa
+## Dos formas de usarla
+
+- **En internet (Render, plan gratis):** se abre el link de Render y listo. No hace falta `iniciar.cmd`
+  ni túnel: Render da un link `https` fijo y el QR apunta ahí.
+  Si nadie la usa por 15 minutos se «duerme»: la primera visita tarda ~1 minuto en despertarla.
+  Cada vez que se sube código a GitHub, Render se actualiza solo.
+- **En tu PC:** con `iniciar.cmd`, como se explica abajo.
+
+## Cómo se usa (en tu PC)
 
 1. Doble clic en **`iniciar.cmd`**. Se abre una ventana negra (el servidor) y la app en el navegador.
    **No cierres la ventana negra** mientras uses la app.
