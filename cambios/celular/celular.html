@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1118">
+<title>Cámara para la PC</title>
+<!--
+  PÁGINA DEL CELULAR
+  Se abre al escanear el QR. Usa la cámara del celular y manda fotos seguidas
+  a la PC. La PC las usa como si fueran su propia cámara.
+
+  Bloques del código (abajo, en <script>):
+   1. Elementos y estado
+   2. Cámara
+   3. Conexión con la PC
+   4. Giro: enderezar la imagen si el celular está de costado
+   5. Bucle: tomar foto (ya derecha) y mandarla
+   6. Marcos verdes sobre los Post-its
+   7. Texto de estado
+   8. Pantalla siempre encendida
+   9. Botones
+  10. Arranque
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #020617; color: #f8fafc;
+    font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; overflow: hidden; }
+
+  /* VERTICAL: la vista arriba y los botones abajo. Toda la pantalla, sin scroll */
+  .pantalla { height: 100vh; height: 100dvh; display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px); }
+  .vista { flex: 1; position: relative; min-height: 0; min-width: 0; background: #0f172a; }
+  video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  /* Capa transparente encima del video donde se dibujan los marcos verdes */
+  #marcos { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .estado { position: absolute; top: 10px; left: 10px; right: 10px; text-align: center;
+    font: 700 13px Consolas, monospace; padding: 7px 10px; border-radius: 8px;
+    background: rgba(0,0,0,.65); color: #eab308; }
+  .estado.ok { color: #10b981; }
+  .estado.mal { color: #f43f5e; }
+  .controles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); background: #0d1118;
+    border-top: 1px solid #1e293b; }
+  button, select { width: 100%; min-width: 0; font: 600 14px inherit; font-family: inherit; padding: 11px 6px;
+    border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detener { grid-column: 1 / -1; background: #7f1d1d; border-color: #f43f5e; }
+  .detener.reanudar { background: #065f46; border-color: #10b981; }
+  .grande { position: absolute; inset: 0; margin: auto; width: 80%; height: 64px;
+    background: #0284c7; border-color: #38bdf8; font-size: 17px; white-space: normal; }
+
+  /* Celulares chicos (pantalla baja): botones más compactos */
+  @media (max-height: 600px) and (orientation: portrait) {
+    .controles { gap: 6px; padding-top: 8px; }
+    button, select { padding: 9px 6px; font-size: 13px; }
+  }
+
+  /* HORIZONTAL (opción A): imagen grande y botones en columna a la derecha */
+  @media (orientation: landscape) {
+    .pantalla { flex-direction: row; padding-top: 0;
+      padding-left: env(safe-area-inset-left, 0px); }
+    .controles { display: flex; flex-direction: column; justify-content: center;
+      width: clamp(132px, 24vw, 200px); gap: 6px; padding: 8px;
+      padding-right: calc(8px + env(safe-area-inset-right, 0px));
+      padding-top: calc(8px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      border-top: 0; border-left: 1px solid #1e293b; }
+    .controles > * { flex: 1 1 0; max-height: 56px; min-height: 0; }
+    button, select { padding: 4px 6px; font-size: 13px; }
+    .estado { font-size: 12px; padding: 5px 8px; top: 8px; left: 8px; right: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="pantalla">
+  <div class="vista">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="marcos"></canvas>
+    <div class="estado" id="estado">Conectando con la PC…</div>
+    <button class="grande" id="permitir" hidden>Toca para usar la cámara</button>
+  </div>
+  <div class="controles">
+    <button id="cambiar">Cambiar cámara</button>
+    <button id="rotar">Rotar: Auto</button>
+    <select id="calidad" aria-label="Calidad">
+      <option value="1280">Calidad: 720p</option>
+      <option value="640">Calidad: 480p</option>
+    </select>
+    <button id="girar">Girar a horizontal</button>
+    <button class="detener" id="detener">Detener</button>
+  </div>
+</div>
+
+<script>
+/* ---------- 1. Elementos y estado ---------- */
+const video = document.getElementById('video');
+const estado = document.getElementById('estado');
+const btnPermitir = document.getElementById('permitir');
+const btnCambiar = document.getElementById('cambiar');
+const btnRotar = document.getElementById('rotar');
+const selCalidad = document.getElementById('calidad');
+const btnGirar = document.getElementById('girar');
+const btnDetener = document.getElementById('detener');
+
+// El código de la sala viene en el link del QR (…?sala=XXXX)
+const sala = new URLSearchParams(location.search).get('sala') || '';
+
+let camara = 'environment';  // 'environment' = trasera, 'user' = frontal
+let flujo = null;            // la cámara encendida
+let conexion = null;         // WebSocket con la PC
+let conectado = false;
+let detenido = false;
+let codigoVencido = false;
+let esperandoOk = false;     // true mientras la PC no confirma la foto anterior
+let ultimoEnvio = 0;
+let fotosEnUnSegundo = 0, fps = 0;
+let candado = null;          // mantiene la pantalla encendida
+let avisoTemporal = null;    // texto corto que se muestra unos segundos
+let pausaDePC = null;        // texto si la PC pidió pausa (por ejemplo, usa una foto subida)
+
+const lienzo = document.createElement('canvas'); // aquí se arma cada foto antes de mandarla
+const ctx = lienzo.getContext('2d');
+
+function mostrar(texto, tipo) {
+  estado.textContent = texto;
+  estado.className = 'estado' + (tipo ? ' ' + tipo : '');
+}
+function avisar(texto) {
+  avisoTemporal = { texto, hasta: performance.now() + 4000 };
+  mostrar(texto);
+}
+
+/* ---------- 2. Cámara ---------- */
+async function encenderCamara() {
+  if (flujo) flujo.getTracks().forEach(t => t.stop());
+  const ancho = Number(selCalidad.value);
+  try {
+    flujo = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: camara, width: { ideal: ancho }, height: { ideal: ancho === 1280 ? 720 : 480 } },
+      audio: false
+    });
+    video.srcObject = flujo;
+    await video.play();
+    btnPermitir.hidden = true;
+  } catch (err) {
+    flujo = null;
+    btnPermitir.hidden = false; // algunos celulares piden un toque antes de prender la cámara
+    mostrar('No se pudo abrir la cámara. Toca el botón y acepta el permiso.', 'mal');
+  }
+}
+
+/* ---------- 3. Conexión con la PC ---------- */
+function conectar() {
+  if (!sala) return mostrar('Falta el código. Escanea el QR de la PC.', 'mal');
+  const protocolo = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  conexion = new WebSocket(protocolo + location.host + '/ws?rol=celular&sala=' + encodeURIComponent(sala));
+
+  conexion.onmessage = (e) => {
+    if (e.data === 'ok') { esperandoOk = false; return; } // la PC ya recibió la foto
+    let msg; try { msg = JSON.parse(e.data); } catch (x) { return; }
+    if (msg.tipo === 'cajas') { cajas = msg.c; giroDeCajas = giroEnviado; horaCajas = performance.now(); return; }
+    if (msg.tipo === 'bienvenido') { conectado = true; esperandoOk = false; }
+    // La PC está usando una foto subida: el celular deja de mandar hasta que la quiten
+    if (msg.tipo === 'pausa') { pausaDePC = msg.texto || 'En pausa: la PC no usa la cámara.'; }
+    if (msg.tipo === 'seguir') { pausaDePC = null; esperandoOk = false; }
+    if (msg.tipo === 'error') { codigoVencido = true; mostrar(msg.texto, 'mal'); }
+    if (msg.tipo === 'pc-fuera') { codigoVencido = true; mostrar('La PC cerró la app. Escanea el QR nuevo.', 'mal'); }
+  };
+  conexion.onclose = () => {
+    conectado = false;
+    if (codigoVencido) return;
+    mostrar('Se cortó la conexión. Reintentando…', 'mal');
+    setTimeout(conectar, 2000); // vuelve a intentar solo
+  };
+}
+
+/* ---------- 4. Giro: enderezar la imagen ----------
+   Si el celular tiene la rotación automática apagada, al ponerlo de costado
+   la página sigue vertical y la cámara manda la imagen acostada (3 Post-its
+   en fila llegaban "uno sobre otro"). Con el sensor de gravedad se sabe cómo
+   está el celular de verdad y la foto se endereza antes de mandarla.
+
+   Ángulos (en grados, sentido contrario al reloj, como los usa el navegador):
+     celular derecho = 0, de costado con la parte de arriba a la izquierda = 90,
+     de cabeza = 180, de costado con la parte de arriba a la derecha = 270.   */
+let modoRotar = 'auto';      // 'auto' o un giro fijo elegido a mano: 0, 90, 180, 270
+let anguloCelular = 0;       // cómo está el celular según el sensor
+const esIphone = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+window.addEventListener('devicemotion', (e) => {
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null || g.y == null) return;
+  // En iPhone el sensor da los signos al revés que en Android
+  const x = esIphone ? -g.x : g.x, y = esIphone ? -g.y : g.y;
+  const fuerza = Math.hypot(x, y);
+  if (fuerza < 6) return;    // celular acostado sobre la mesa: no se sabe, se deja como estaba
+  const angulo = (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+  const cercano = Math.round(angulo / 90) * 90 % 360;
+  const distancia = Math.min(Math.abs(angulo - cercano), 360 - Math.abs(angulo - cercano));
+  if (distancia < 30) anguloCelular = cercano; // solo cambia cuando el giro es claro (evita saltos)
+});
+
+// En iPhone hay que pedir permiso para usar el sensor (con un toque en la pantalla)
+function pedirPermisoSensor() {
+  if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().catch(() => {});
+  }
+}
+document.addEventListener('click', pedirPermisoSensor, { once: true });
+
+function anguloPagina() {
+  if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+  return ((window.orientation || 0) + 360) % 360;
+}
+
+// Cuántos grados (en sentido del reloj) hay que girar la foto para que quede derecha
+function giroNecesario() {
+  if (modoRotar !== 'auto') return modoRotar;
+  // Diferencia entre cómo está el celular y cómo está la página.
+  // Si la página ya giró sola (rotación automática prendida), da 0: no hay que hacer nada.
+  const diferencia = (anguloCelular - anguloPagina() + 360) % 360;
+  return (360 - diferencia) % 360;
+}
+
+/* ---------- 5. Bucle: toma una foto (derecha) y la manda cuando la PC está lista ---------- */
+const MIN_MS_ENTRE_FOTOS = 50; // como máximo 20 fotos por segundo
+let giroEnviado = 0;           // giro de la última foto mandada (para ubicar los marcos)
+
+function bucle() {
+  setTimeout(bucle, 15);
+  const ahora = performance.now();
+  if (!conectado || detenido || pausaDePC || !flujo || video.readyState < 2) return;
+  if (esperandoOk && ahora - ultimoEnvio < 1500) return; // espera el "ok" (máx. 1,5 s por si se perdió)
+  if (ahora - ultimoEnvio < MIN_MS_ENTRE_FOTOS) return;
+  if (conexion.bufferedAmount > 0) return;               // todavía está saliendo la anterior
+
+  // Tamaño según la calidad elegida, sin deformar
+  const anchoMax = Number(selCalidad.value);
+  const escala = Math.min(1, anchoMax / Math.max(video.videoWidth, video.videoHeight));
+  const w = Math.round(video.videoWidth * escala), h = Math.round(video.videoHeight * escala);
+
+  // Si se gira 90° o 270°, la foto queda con ancho y alto cambiados
+  const giro = giroNecesario();
+  const deLado = giro === 90 || giro === 270;
+  const anchoFoto = deLado ? h : w, altoFoto = deLado ? w : h;
+  if (lienzo.width !== anchoFoto || lienzo.height !== altoFoto) { lienzo.width = anchoFoto; lienzo.height = altoFoto; }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.translate(anchoFoto / 2, altoFoto / 2);
+  ctx.rotate(giro * Math.PI / 180);
+  ctx.drawImage(video, -w / 2, -h / 2, w, h);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  giroEnviado = giro;
+
+  esperandoOk = true;
+  ultimoEnvio = ahora;
+  lienzo.toBlob((foto) => {
+    if (foto && conexion.readyState === 1) { conexion.send(foto); fotosEnUnSegundo++; }
+  }, 'image/jpeg', 0.7);
+}
+
+/* ---------- 6. Marcos verdes: la PC avisa dónde vio Post-its y aquí se dibujan ---------- */
+const capaMarcos = document.getElementById('marcos');
+const ctxMarcos = capaMarcos.getContext('2d');
+let cajas = [];        // [x, y, ancho, alto] de 0 a 1, en la foto YA GIRADA que recibió la PC
+let giroDeCajas = 0;   // con qué giro se mandó esa foto
+let horaCajas = 0;
+
+// La vista del celular muestra la cámara sin girar. Se deshace el giro para
+// que cada marco caiga encima de su Post-it en la pantalla.
+function deshacerGiro([x, y, w, h], giro) {
+  const esquinas = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].map(([u, v]) => {
+    if (giro === 90) return [v, 1 - u];
+    if (giro === 180) return [1 - u, 1 - v];
+    if (giro === 270) return [1 - v, u];
+    return [u, v];
+  });
+  const xs = esquinas.map(p => p[0]), ys = esquinas.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+}
+
+function dibujarMarcos() {
+  requestAnimationFrame(dibujarMarcos);
+  // La capa mide lo mismo que la pantalla (en pixeles reales del celular)
+  const escalaPantalla = window.devicePixelRatio || 1;
+  const anchoCapa = Math.round(capaMarcos.clientWidth * escalaPantalla);
+  const altoCapa = Math.round(capaMarcos.clientHeight * escalaPantalla);
+  if (capaMarcos.width !== anchoCapa || capaMarcos.height !== altoCapa) {
+    capaMarcos.width = anchoCapa; capaMarcos.height = altoCapa;
+  }
+  ctxMarcos.clearRect(0, 0, anchoCapa, altoCapa);
+  // Si la PC dejó de mandar cajas hace más de 1 s, no se muestran marcos viejos
+  if (!video.videoWidth || detenido || pausaDePC || performance.now() - horaCajas > 1000) return;
+
+  // El video se ve "contenido" en la pantalla (con franjas): se calcula dónde quedó
+  const escala = Math.min(anchoCapa / video.videoWidth, altoCapa / video.videoHeight);
+  const anchoVideo = video.videoWidth * escala, altoVideo = video.videoHeight * escala;
+  const bordeX = (anchoCapa - anchoVideo) / 2, bordeY = (altoCapa - altoVideo) / 2;
+
+  ctxMarcos.strokeStyle = '#22c55e';
+  ctxMarcos.lineWidth = 3 * escalaPantalla;
+  ctxMarcos.fillStyle = 'rgba(34, 197, 94, 0.15)';
+  for (const caja of cajas) {
+    const [x, y, w, h] = deshacerGiro(caja, giroDeCajas);
+    const rx = bordeX + x * anchoVideo, ry = bordeY + y * altoVideo;
+    ctxMarcos.fillRect(rx, ry, w * anchoVideo, h * altoVideo);
+    ctxMarcos.strokeRect(rx, ry, w * anchoVideo, h * altoVideo);
+  }
+}
+
+/* ---------- 7. Texto de estado (cada segundo) ---------- */
+setInterval(() => {
+  fps = fotosEnUnSegundo; fotosEnUnSegundo = 0;
+  if (codigoVencido) return;
+  if (avisoTemporal && performance.now() < avisoTemporal.hasta) return mostrar(avisoTemporal.texto);
+  if (detenido) return mostrar('En pausa. Toca «Reanudar».');
+  if (pausaDePC && conectado) return mostrar(pausaDePC);
+  const vistos = performance.now() - horaCajas < 1000 ? cajas.length : 0;
+  const textoPostits = vistos === 1 ? '1 Post-it' : vistos + ' Post-its';
+  if (conectado && flujo) mostrar('● Transmitiendo · ' + fps + ' fotos/s · ' + textoPostits, 'ok');
+  else if (conectado) mostrar('Conectado. Esperando la cámara…');
+}, 1000);
+
+/* ---------- 8. Pantalla siempre encendida ---------- */
+async function mantenerEncendida() {
+  try { if ('wakeLock' in navigator && !candado) {
+    candado = await navigator.wakeLock.request('screen');
+    candado.addEventListener('release', () => { candado = null; });
+  } } catch (e) { /* algunos celulares no lo permiten; no pasa nada */ }
+}
+
+// Al volver a la página (por ejemplo después de mirar otra app) se reactiva todo
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    mantenerEncendida();
+    if (!flujo || flujo.getVideoTracks().every(t => t.readyState === 'ended')) encenderCamara();
+  }
+});
+
+/* ---------- 9. Botones ---------- */
+btnPermitir.onclick = () => { encenderCamara(); mantenerEncendida(); };
+btnCambiar.onclick = () => { camara = camara === 'environment' ? 'user' : 'environment'; encenderCamara(); };
+selCalidad.onchange = encenderCamara;
+btnDetener.onclick = () => {
+  detenido = !detenido;
+  btnDetener.textContent = detenido ? 'Reanudar' : 'Detener';
+  btnDetener.classList.toggle('reanudar', detenido);
+};
+
+// «Rotar»: Auto → 0° → 90° → 180° → 270° → Auto. Por si algún celular endereza al revés.
+const PASOS_ROTAR = ['auto', 0, 90, 180, 270];
+btnRotar.onclick = () => {
+  modoRotar = PASOS_ROTAR[(PASOS_ROTAR.indexOf(modoRotar) + 1) % PASOS_ROTAR.length];
+  btnRotar.textContent = 'Rotar: ' + (modoRotar === 'auto' ? 'Auto' : modoRotar + '°');
+};
+
+// «Girar a horizontal»: pantalla completa y página fija acostada (Android).
+// En iPhone no se puede trabar: se pide girar el celular a mano.
+btnGirar.onclick = async () => {
+  if (document.fullscreenElement) {
+    try { screen.orientation.unlock(); } catch (e) {}
+    try { await document.exitFullscreen(); } catch (e) {}
+    return;
+  }
+  try {
+    await document.documentElement.requestFullscreen();
+    await screen.orientation.lock('landscape');
+  } catch (e) {
+    if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (x) {} }
+    avisar('Gira el celular a mano (este celular no deja trabar la pantalla).');
+  }
+};
+document.addEventListener('fullscreenchange', () => {
+  btnGirar.textContent = document.fullscreenElement ? 'Volver a normal' : 'Girar a horizontal';
+});
+
+/* ---------- 10. Arranque ---------- */
+encenderCamara();
+mantenerEncendida();
+conectar();
+bucle();
+dibujarMarcos();
+</script>
+</body>
+</html>

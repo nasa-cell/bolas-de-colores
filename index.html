@@ -1,0 +1,4083 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Activación Interactiva - Proyección & Post-its</title>
+  <meta name="description" content="Sistema autónomo de proyección interactiva con detección de Post-its por color y simulación de física en tiempo real en un único archivo HTML.">
+  <style>
+/* ==========================================================================
+   ACTIVACIÓN INTERACTIVA - PROYECCIÓN & POST-ITS (ARCHIVO ÚNICO)
+   Estilos: Glassmorphism, Dark Mode para Proyector, Acentos Neón
+   ========================================================================== */
+
+:root {
+  --bg-pure-black: #000000;
+  --bg-panel: rgba(13, 17, 24, 0.95);
+  --bg-panel-solid: #0d1118;
+  --bg-card: rgba(255, 255, 255, 0.035);
+  --bg-card-hover: rgba(255, 255, 255, 0.065);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-focus: #0284c7;
+
+  --accent-primary: #0284c7;
+  --accent-primary-hover: #0369a1;
+  --accent-cyan: #38bdf8;
+  --accent-pink: #f43f5e;
+  --accent-yellow: #eab308;
+  --accent-green: #10b981;
+  --accent-orange: #f97316;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --font-main: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Consolas', 'Cascadia Code', monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-glow: none;
+  --shadow-panel: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-pure-black);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Canvas de proyección */
+#projectionCanvas,
+#effectsCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+#projectionCanvas {
+  z-index: 1;
+}
+
+#effectsCanvas {
+  z-index: 2;
+  pointer-events: none;
+}
+
+#webcamVideo {
+  display: none;
+}
+
+/* Botón flotante para alternar menú (Sobrio e institucional) */
+.floating-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: var(--radius-sm);
+  color: #f8fafc;
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.floating-btn:hover {
+  background: #1e293b;
+  border-color: #475569;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.floating-btn .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.floating-btn .badge {
+  background: #1e293b;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  border: 1px solid #334155;
+}
+
+/* Panel de control */
+.config-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-panel);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-panel);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.config-panel.hidden {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.panel-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-title h3 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.panel-title .subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.panel-title .subtitle strong {
+  color: var(--accent-cyan);
+}
+
+.status-badge-inline {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+}
+
+.panel-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.panel-header-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.panel-header-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 9px 4px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+  color: #000;
+  background: var(--accent-cyan);
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0, 229, 255, 0.4);
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.tab-pane {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tab-pane.active {
+  display: flex;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.section-title h4 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.badge-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--accent-cyan);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+.section-intro {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-row {
+  display: flex;
+  gap: 12px;
+}
+
+.control-group.half {
+  flex: 1;
+}
+
+label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.slider-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+
+.hue-gradient-slider {
+  background: linear-gradient(to right, 
+    #ff0000 0%, #ffff00 17%, #00ff00 33%, 
+    #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%) !important;
+}
+
+.select-wrapper {
+  display: flex;
+  gap: 8px;
+}
+
+select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+select option {
+  background: var(--bg-panel-solid);
+  color: var(--text-primary);
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.switch-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.15);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.25s ease;
+  outline: none;
+}
+
+.switch-input:checked {
+  background: var(--accent-cyan);
+}
+
+.switch-input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.switch-input:checked::after {
+  transform: translateX(18px);
+}
+
+.video-preview-container {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.status-pill {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-cyan);
+}
+
+.canvas-aspect-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #05070a;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.canvas-aspect-wrapper canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.crosshair {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8), inset 0 0 6px var(--accent-cyan);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: none;
+}
+
+/* Retícula central para enfocar y clonar la tarjeta */
+.card-focus-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 104px;
+  height: 104px;
+  transform: translate(-50%, -50%);
+  border: 1.5px dashed rgba(0, 229, 255, 0.7);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px;
+}
+
+.reticle-center-cross {
+  width: 12px;
+  height: 12px;
+  position: relative;
+  margin-top: 18px;
+}
+
+.reticle-center-cross::before,
+.reticle-center-cross::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.reticle-center-cross::before {
+  top: 5px; left: 0; width: 12px; height: 2px;
+}
+
+.reticle-center-cross::after {
+  top: 0; left: 5px; width: 2px; height: 12px;
+}
+
+.reticle-tag {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+/* Módulo institucional para clonar tarjeta en mano */
+.card-sampling-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card-sampling-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.technical-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+
+.live-sample-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.indicator-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.mini-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--accent-yellow);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 8px var(--accent-yellow);
+}
+
+.mono-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.card-sampling-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.color-sample-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sample-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: var(--accent-yellow);
+  box-shadow: 0 0 8px var(--accent-yellow);
+}
+
+.mono-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.presets-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.preset-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 7px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+}
+
+.preset-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  border-color: var(--preset-color);
+}
+
+.preset-btn .chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--preset-color);
+  box-shadow: 0 0 6px var(--preset-color);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.calibration-preview-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #05070a;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.calibration-preview-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.corner-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.corner-btn-group {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.btn-corner {
+  padding: 6px 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.btn-corner.active {
+  background: rgba(0, 229, 255, 0.2);
+  border-color: #00e5ff;
+  color: #00e5ff;
+  font-weight: 700;
+}
+
+.fine-tuning-box {
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.calibration-overlay-info {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.calibration-overlay-info strong {
+  color: var(--accent-cyan);
+}
+
+.radio-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.radio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.radio-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.radio-card:has(input[type="radio"]:checked) {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.radio-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radio-content strong {
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.radio-content span {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: #0284c7;
+  color: #ffffff;
+  border: 1px solid #0369a1;
+  box-shadow: none;
+}
+
+.btn-primary:hover {
+  background: #0369a1;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.btn-accent {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.btn-accent:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+
+.btn-sm {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+
+.btn-large {
+  padding: 12px 24px;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.panel-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.shortcuts-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.overlay-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 12, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  transition: opacity 0.3s ease;
+}
+
+.overlay-modal.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.modal-card.institutional-card {
+  position: relative;
+  background: #0b0f19;
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-md);
+  padding: 34px 38px;
+  max-width: 580px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.9);
+}
+
+.institutional-brand-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brand-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.org-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.modal-main-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: -0.3px;
+  line-height: 1.25;
+}
+
+.status-badge-institutional {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  white-space: nowrap;
+}
+
+.institutional-divider {
+  height: 1px;
+  background: #1e293b;
+  width: 100%;
+}
+
+.modal-abstract {
+  font-size: 13.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.spec-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.spec-matrix-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.spec-matrix-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+}
+
+.spec-matrix-val {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.3;
+}
+
+.institutional-steps-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.inst-step-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.inst-step-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 1px 5px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.inst-step-text {
+  font-size: 12.5px;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+
+.inst-step-text strong {
+  color: #ffffff;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modal-footer-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.modal-footer-hint strong {
+  color: var(--accent-cyan);
+}
+
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(13, 17, 26, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-cyan);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  animation: slideToast 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.toast.success {
+  border-left-color: var(--accent-green);
+}
+
+.toast.warning {
+  border-left-color: var(--accent-yellow);
+}
+
+@keyframes slideToast {
+  from { transform: translateX(-20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+  </style>
+</head>
+<body class="projection-mode">
+
+  <!-- Canvas principal para proyección (fondo oscuro + bolas fluorescentes) -->
+  <canvas id="projectionCanvas"></canvas>
+
+  <!-- Canvas de partículas y efectos visuales de impacto -->
+  <canvas id="effectsCanvas"></canvas>
+
+  <!-- Video oculto donde se captura la cámara web -->
+  <video id="webcamVideo" playsinline muted autoplay></video>
+
+  <!-- Botón flotante para alternar menú cuando no se usa teclado -->
+  <button id="floatingMenuBtn" class="floating-btn" title="Presiona 'H' para alternar panel">
+    <span class="label">SISTEMA</span>
+    <span class="badge">H</span>
+  </button>
+
+  <!-- Pantalla de Inicio / Presentación Institucional -->
+  <div id="welcomeOverlay" class="overlay-modal">
+    <div class="modal-card institutional-card">
+      <div class="institutional-brand-bar">
+        <div class="brand-title-group">
+          <span class="org-sub">ACTIVACIÓN FÍSICO-DIGITAL & PROYECCIÓN</span>
+          <h1 class="modal-main-title">Mapeo Óptico & Dinámica Interactiva</h1>
+        </div>
+        <span class="status-badge-institutional">SISTEMA AUTÓNOMO</span>
+      </div>
+
+      <div class="institutional-divider"></div>
+
+      <p class="modal-abstract">
+        Plataforma técnica de calibración de proyección espacial y reconocimiento continuo para notas de color y tarjetas físicas sobre muros reales.
+      </p>
+
+      <div class="spec-matrix-grid">
+        <div class="spec-matrix-col">
+          <span class="spec-matrix-label">Mapeo Óptico</span>
+          <span class="spec-matrix-val">Homografía 4 puntos proyectada</span>
+        </div>
+        <div class="spec-matrix-col">
+          <span class="spec-matrix-label">Reconocimiento</span>
+          <span class="spec-matrix-val">Espacio HSV + Retícula central</span>
+        </div>
+        <div class="spec-matrix-col">
+          <span class="spec-matrix-label">Motor Físico</span>
+          <span class="spec-matrix-val">Esferas sólidas naturales (60 FPS)</span>
+        </div>
+      </div>
+
+      <div class="institutional-steps-box">
+        <div class="inst-step-row">
+          <span class="inst-step-tag">FASE 1</span>
+          <span class="inst-step-text">Proyectar sobre el muro y encuadrar el sensor de captura hacia la zona interactiva.</span>
+        </div>
+        <div class="inst-step-row">
+          <span class="inst-step-tag">FASE 2</span>
+          <span class="inst-step-text">Calibrar el cuadrilátero de proyección con la tecla <strong>H</strong>.</span>
+        </div>
+        <div class="inst-step-row">
+          <span class="inst-step-tag">FASE 3</span>
+          <span class="inst-step-text">Adherir Post-its en la pared o clonar el tono sosteniendo una tarjeta en el centro.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="startCameraBtn" class="btn btn-primary btn-large">
+          Iniciar Dispositivo de Video y Captura
+        </button>
+        <button id="demoModeBtn" class="btn btn-secondary">
+          Ejecutar Simulación Demostrativa
+        </button>
+      </div>
+      <div class="modal-footer-hint">
+        Atajo de consola: Presione la tecla <kbd>H</kbd> para acceder a la calibración milimétrica y muestreo de color.
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel de Configuración flotante (Se oculta/muestra con H) -->
+  <aside id="configPanel" class="config-panel hidden">
+    <header class="panel-header">
+      <div class="panel-title">
+        <span class="status-badge-inline">EN LÍNEA</span>
+        <div>
+          <h3>Consola de Administración</h3>
+          <span class="subtitle">Activación Física & Proyección</span>
+        </div>
+      </div>
+      <div class="panel-actions">
+        <button id="fullscreenBtn" class="panel-header-btn" title="Pantalla Completa (F)">Pantalla Completa [F]</button>
+        <button id="closePanelBtn" class="panel-header-btn" title="Cerrar Consola (H)">Cerrar [H]</button>
+      </div>
+    </header>
+
+    <!-- Pestañas de configuración -->
+    <nav class="panel-tabs">
+      <button class="tab-btn active" data-tab="tab-color">Cromática</button>
+      <button class="tab-btn" data-tab="tab-calibration">Calibración</button>
+      <button class="tab-btn" data-tab="tab-physics">Física</button>
+      <button class="tab-btn" data-tab="tab-visuals">Rendimiento & Audio</button>
+    </nav>
+
+    <!-- Contenido de Pestañas -->
+    <div class="panel-content">
+
+      <!-- ================= PESTAÑA: DETECCIÓN DE COLOR ================= -->
+      <section id="tab-color" class="tab-pane active">
+        <div class="section-title">
+          <h4>Segmentación Cromática</h4>
+          <span class="badge-tag">Sensor Óptico</span>
+        </div>
+
+        <!-- Selector de cámara -->
+        <div class="control-group">
+          <label for="cameraSelect">Dispositivo de Entrada:</label>
+          <div class="select-wrapper">
+            <select id="cameraSelect">
+              <option value="">Detectando dispositivos...</option>
+            </select>
+            <button id="refreshCamerasBtn" class="btn btn-sm btn-secondary" title="Actualizar lista de dispositivos">Actualizar</button>
+          </div>
+        </div>
+
+        <!-- Visor de cámara para muestreo / pipeta / clonar tarjeta -->
+        <div class="video-preview-container">
+          <div class="preview-header">
+            <span>Encuadre de Captura</span>
+            <span id="eyedropperStatus" class="status-pill">Modo Enfoque</span>
+          </div>
+          <div class="canvas-aspect-wrapper">
+            <canvas id="cameraFeedCanvas" width="320" height="240"></canvas>
+            <!-- Retícula central para enfocar la tarjeta en mano -->
+            <div id="cardFocusReticle" class="card-focus-reticle">
+              <span class="reticle-tag">ENFOQUE DE TARJETA</span>
+              <div class="reticle-center-cross"></div>
+              <span class="reticle-tag">ZONA CENTRAL</span>
+            </div>
+            <div id="pipetteCrosshair" class="crosshair"></div>
+          </div>
+
+          <!-- Módulo institucional para clonar tarjeta en mano -->
+          <div class="card-sampling-card">
+            <div class="card-sampling-header">
+              <span class="technical-label">Muestreo de Tarjeta en Mano</span>
+              <div class="live-sample-indicator">
+                <span class="indicator-label">En foco:</span>
+                <div id="liveCardSwatch" class="mini-swatch"></div>
+                <span id="liveCardHsv" class="mono-value">HSV: --</span>
+              </div>
+            </div>
+            <p class="field-hint">Sostén la tarjeta frente al lente dentro del recuadro central y captura su color:</p>
+            <div class="card-sampling-actions">
+              <button id="cloneCardBtn" type="button" class="btn btn-primary btn-block">
+                Clonar Color de Tarjeta Enfocada
+              </button>
+            </div>
+          </div>
+
+          <div class="preview-footer">
+            <div class="color-sample-box">
+              <span class="sample-label">Filtro activo:</span>
+              <div id="sampledColorPreview" class="color-swatch"></div>
+              <span id="sampledColorValues" class="mono-text">HSV: 60°, 85%, 90%</span>
+            </div>
+            <button id="pipetteToolBtn" class="btn btn-sm btn-secondary">
+              Selector Manual (Pipeta)
+            </button>
+          </div>
+        </div>
+
+        <!-- Presets rápidos de Post-its -->
+        <div class="control-group">
+          <label>Calibraciones cromáticas estándar:</label>
+          <div class="presets-grid">
+            <button class="preset-btn" data-preset="yellow" style="--preset-color: #ffe600;">
+              <span class="chip"></span> Amarillo Canario
+            </button>
+            <button class="preset-btn" data-preset="green" style="--preset-color: #00ff66;">
+              <span class="chip"></span> Verde Lima
+            </button>
+            <button class="preset-btn" data-preset="pink" style="--preset-color: #ff007f;">
+              <span class="chip"></span> Magenta
+            </button>
+            <button class="preset-btn" data-preset="orange" style="--preset-color: #ff6600;">
+              <span class="chip"></span> Naranja
+            </button>
+            <button class="preset-btn" data-preset="cyan" style="--preset-color: #00e5ff;">
+              <span class="chip"></span> Cian
+            </button>
+          </div>
+        </div>
+
+        <!-- Selector de Modo de Segmentación: Tono Central vs Rango OpenCV -->
+        <div class="control-group">
+          <label>Modo de Segmentación Cromática:</label>
+          <div class="radio-cards" style="grid-template-columns: 1fr 1fr;">
+            <label class="radio-card">
+              <input type="radio" name="colorDetectionMode" value="center" checked>
+              <div class="radio-content">
+                <strong>Tono Central (±ΔH)</strong>
+                <span>Color fijo + tolerancia</span>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="colorDetectionMode" value="range">
+              <div class="radio-content">
+                <strong>Rango HSV (inRange)</strong>
+                <span>Mín y Máx tipo OpenCV</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- MODO 1: CONTROLES DE TONO CENTRAL (ACTIVO POR DEFECTO) -->
+        <div id="colorModeCenterControls">
+          <div class="control-group">
+            <div class="slider-header">
+              <label for="hueSlider">Tono Base (Hue):</label>
+              <span id="hueVal" class="slider-val">60°</span>
+            </div>
+            <input type="range" id="hueSlider" min="0" max="360" value="60" class="hue-gradient-slider">
+          </div>
+
+          <div class="control-group">
+            <div class="slider-header">
+              <label for="hueToleranceSlider">Tolerancia de Tono (±ΔH):</label>
+              <span id="hueToleranceVal" class="slider-val">24°</span>
+            </div>
+            <input type="range" id="hueToleranceSlider" min="5" max="70" value="24">
+          </div>
+
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="minSatSlider">Sat. Mín:</label>
+                <span id="minSatVal" class="slider-val">30%</span>
+              </div>
+              <input type="range" id="minSatSlider" min="5" max="100" value="30">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="minValSlider">Brillo Mín:</label>
+                <span id="minValVal" class="slider-val">25%</span>
+              </div>
+              <input type="range" id="minValSlider" min="5" max="100" value="25">
+            </div>
+          </div>
+        </div>
+
+        <!-- MODO 2: CONTROLES DE RANGO HSV TIPO cv2.inRange (OPENCV) -->
+        <div id="colorModeRangeControls" style="display: none;" class="fine-tuning-box">
+          <div class="technical-label" style="color: var(--accent-cyan); font-weight: 700;">
+            MÁSCARA POR RANGOS HSV (TIPO cv2.inRange)
+          </div>
+          
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMinHueSlider">Hue Mín (H_min):</label>
+                <span id="rangeMinHueVal" class="slider-val">38°</span>
+              </div>
+              <input type="range" id="rangeMinHueSlider" min="0" max="360" value="38" class="hue-gradient-slider">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMaxHueSlider">Hue Máx (H_max):</label>
+                <span id="rangeMaxHueVal" class="slider-val">82°</span>
+              </div>
+              <input type="range" id="rangeMaxHueSlider" min="0" max="360" value="82" class="hue-gradient-slider">
+            </div>
+          </div>
+
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMinSatSlider">Sat Mín (S_min):</label>
+                <span id="rangeMinSatVal" class="slider-val">25%</span>
+              </div>
+              <input type="range" id="rangeMinSatSlider" min="0" max="100" value="25">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMaxSatSlider">Sat Máx (S_max):</label>
+                <span id="rangeMaxSatVal" class="slider-val">100%</span>
+              </div>
+              <input type="range" id="rangeMaxSatSlider" min="0" max="100" value="100">
+            </div>
+          </div>
+
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMinValSlider">Val Mín (V_min):</label>
+                <span id="rangeMinValVal" class="slider-val">25%</span>
+              </div>
+              <input type="range" id="rangeMinValSlider" min="0" max="100" value="25">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="rangeMaxValSlider">Val Máx (V_max):</label>
+                <span id="rangeMaxValVal" class="slider-val">100%</span>
+              </div>
+              <input type="range" id="rangeMaxValSlider" min="0" max="100" value="100">
+            </div>
+          </div>
+
+          <div class="opencv-snippet-preview">
+            <span class="field-hint" style="color: var(--accent-cyan); font-family: var(--font-mono); font-size: 10.5px;">
+              Python equivalente:<br>
+              <code id="opencvCodePreview" style="display:block; padding: 4px 6px; background: rgba(0,0,0,0.5); border-radius: 4px; margin-top: 4px; word-break: break-all; color: #38bdf8;">
+                cv2.inRange(hsv, (19, 64, 64), (41, 255, 255))
+              </code>
+            </span>
+          </div>
+        </div>
+
+        <!-- Filtros de tamaño de Post-it (Optimizados para alcance de 1 a 4 metros) -->
+        <div class="control-row">
+          <div class="control-group half">
+            <div class="slider-header">
+              <label for="minAreaSlider">Área Mínima (Distancia):</label>
+              <span id="minAreaVal" class="slider-val">45 px</span>
+            </div>
+            <input type="range" id="minAreaSlider" min="15" max="800" value="45">
+          </div>
+          <div class="control-group half">
+            <div class="slider-header">
+              <label for="maxAreaSlider">Área Máxima:</label>
+              <span id="maxAreaVal" class="slider-val">80k px</span>
+            </div>
+            <input type="range" id="maxAreaSlider" min="3000" max="100000" value="80000">
+          </div>
+        </div>
+
+        <!-- Ajuste fino de margen milimétrico -->
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="sizeOffsetSlider">Ajuste Fino de Tamaño (Margen Físico):</label>
+            <span id="sizeOffsetVal" class="slider-val">0%</span>
+          </div>
+          <input type="range" id="sizeOffsetSlider" min="-30" max="30" value="0">
+          <span class="field-hint">Ajusta milimétricamente el área de rebote para que encaje con el borde exacto del papel físico.</span>
+        </div>
+
+        <!-- Suavizado y persistencia temporal -->
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="smoothingSlider">Estabilidad / Suavizado:</label>
+            <span id="smoothingVal" class="slider-val">70%</span>
+          </div>
+          <input type="range" id="smoothingSlider" min="0" max="95" value="70">
+          <span class="field-hint">Evita que los obstáculos parpadeen si la luz cambia levemente.</span>
+        </div>
+
+        <!-- Visualizador de máscara binaria de detección -->
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="showMaskToggle">Ver máscara binaria (blanco y negro)</label>
+            <input type="checkbox" id="showMaskToggle" class="switch-input">
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PESTAÑA: CALIBRACIÓN PROYECTOR/CÁMARA ================= -->
+      <section id="tab-calibration" class="tab-pane">
+        <div class="section-title">
+          <h4>Alineación Proyector & Pared</h4>
+          <span class="badge-tag">Mapeo 4 Esquinas</span>
+        </div>
+        <p class="section-intro">
+          Ajusta las 4 esquinas para que la zona de la cámara coincida con la proyección física sobre la pared.
+        </p>
+
+        <!-- Canvas de calibración interactivo -->
+        <div class="calibration-preview-container">
+          <canvas id="calibrationCanvas" width="480" height="270"></canvas>
+          <div class="calibration-overlay-info">
+            Arrastra esquinas o selecciona <strong>1, 2, 3, 4</strong> y afina con <strong>Flechas del teclado</strong>.
+          </div>
+        </div>
+
+        <!-- Selector rápido de esquina activa para teclado -->
+        <div class="corner-selector-row">
+          <span class="technical-label">Esquina activa para ajustar con Flechas (↑ ↓ ← →):</span>
+          <div class="corner-btn-group">
+            <button type="button" class="btn btn-sm btn-corner active" data-corner="0">1: Sup-Izq</button>
+            <button type="button" class="btn btn-sm btn-corner" data-corner="1">2: Sup-Der</button>
+            <button type="button" class="btn btn-sm btn-corner" data-corner="2">3: Inf-Der</button>
+            <button type="button" class="btn btn-sm btn-corner" data-corner="3">4: Inf-Izq</button>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="resetCalibrationBtn" class="btn btn-secondary">
+            Restablecer Cuadrilátero
+          </button>
+          <button id="toggleTestPatternBtn" class="btn btn-accent">
+            Patrón de Alineación
+          </button>
+        </div>
+
+        <!-- Compensación milimétrica directa de posición y escala (Offsets) -->
+        <div class="fine-tuning-box">
+          <div class="technical-label" style="color: var(--accent-cyan); font-weight: 700;">
+            COMPENSACIÓN MILIMÉTRICA DIRECTA (OFFSETS)
+          </div>
+          <p class="field-hint" style="margin: 0;">
+            Si el cuadro proyectado sale desplazado hacia arriba o a un costado de tu Post-it real, muévelo directamente aquí:
+          </p>
+
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="offsetXSlider">Mover Horizontal (X):</label>
+                <span id="offsetXVal" class="slider-val">0%</span>
+              </div>
+              <input type="range" id="offsetXSlider" min="-35" max="35" value="0">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="offsetYSlider">Mover Vertical (Y):</label>
+                <span id="offsetYVal" class="slider-val">0%</span>
+              </div>
+              <input type="range" id="offsetYSlider" min="-35" max="35" value="0">
+            </div>
+          </div>
+
+          <div class="control-row">
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="scaleXSlider">Ancho Caja (%):</label>
+                <span id="scaleXVal" class="slider-val">100%</span>
+              </div>
+              <input type="range" id="scaleXSlider" min="50" max="180" value="100">
+            </div>
+            <div class="control-group half">
+              <div class="slider-header">
+                <label for="scaleYSlider">Alto Caja (%):</label>
+                <span id="scaleYVal" class="slider-val">100%</span>
+              </div>
+              <input type="range" id="scaleYSlider" min="50" max="180" value="100">
+            </div>
+          </div>
+
+          <button id="resetOffsetsBtn" type="button" class="btn btn-sm btn-secondary btn-block">
+            Centrar y Restablecer Compensaciones
+          </button>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="liveCameraWallToggle">Superponer Cámara en la Pared (Ver calce real)</label>
+            <input type="checkbox" id="liveCameraWallToggle" class="switch-input">
+          </div>
+          <span class="field-hint">Proyecta la imagen de la cámara semitransparente sobre la pared para ver exactamente el descalce óptico.</span>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="flipCameraXToggle">Invertir Cámara Horizontalmente (Espejo)</label>
+            <input type="checkbox" id="flipCameraXToggle" class="switch-input">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="flipCameraYToggle">Invertir Cámara Verticalmente</label>
+            <input type="checkbox" id="flipCameraYToggle" class="switch-input">
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PESTAÑA: FÍSICA & BOLAS ================= -->
+      <section id="tab-physics" class="tab-pane">
+        <div class="section-title">
+          <h4>Dinámica de Partículas</h4>
+          <span class="badge-tag">Simulación 60 FPS</span>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="spawnRateSlider">Frecuencia de Emisión (por seg):</label>
+            <span id="spawnRateVal" class="slider-val">8 /s</span>
+          </div>
+          <input type="range" id="spawnRateSlider" min="0" max="30" value="8">
+        </div>
+
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="gravitySlider">Gravedad:</label>
+            <span id="gravityVal" class="slider-val">0.45</span>
+          </div>
+          <input type="range" id="gravitySlider" min="0.1" max="1.5" step="0.05" value="0.45">
+        </div>
+
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="bouncinessSlider">Coeficiente de Restitución (Rebote):</label>
+            <span id="bouncinessVal" class="slider-val">0.75</span>
+          </div>
+          <input type="range" id="bouncinessSlider" min="0.2" max="1.1" step="0.05" value="0.75">
+        </div>
+
+        <div class="control-row">
+          <div class="control-group half">
+            <div class="slider-header">
+              <label for="ballRadiusSlider">Radio Partículas:</label>
+              <span id="ballRadiusVal" class="slider-val">10 px</span>
+            </div>
+            <input type="range" id="ballRadiusSlider" min="4" max="25" value="10">
+          </div>
+          <div class="control-group half">
+            <div class="slider-header">
+              <label for="maxBallsSlider">Límite Simultáneo:</label>
+              <span id="maxBallsVal" class="slider-val">120</span>
+            </div>
+            <input type="range" id="maxBallsSlider" min="20" max="350" value="120">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="ballStyleSelect">Paleta Cromática de Emisión:</label>
+          <select id="ballStyleSelect">
+            <option value="natural-white">Esferas Blancas & Marfil (Natural)</option>
+            <option value="classic">Tonalidades Físicas (Clásico)</option>
+            <option value="monochrome">Monocromático Puro</option>
+            <option value="slate">Acero & Grafito</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="spawnerModeSelect">Modo de Emisión:</label>
+          <select id="spawnerModeSelect">
+            <option value="rain">Lluvia Uniforme Superior</option>
+            <option value="center">Fuente Central</option>
+            <option value="moving">Emisor Móvil en Péndulo</option>
+            <option value="interactive">Interactivo (Puntero / Clic)</option>
+          </select>
+        </div>
+
+        <div class="button-row">
+          <button id="clearBallsBtn" class="btn btn-secondary">
+            Purgar Partículas (R)
+          </button>
+          <button id="burstBallsBtn" class="btn btn-accent">
+            Emisión en Ráfaga (30)
+          </button>
+        </div>
+      </section>
+
+      <!-- ================= PESTAÑA: EFECTOS & AUDIO ================= -->
+      <section id="tab-visuals" class="tab-pane">
+        <div class="section-title">
+          <h4>Resonancia & Acústica</h4>
+          <span class="badge-tag">Módulo Web Audio</span>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="splatterToggle">Partículas de Dispersión al Impactar</label>
+            <input type="checkbox" id="splatterToggle" class="switch-input" checked>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="highlightStickersToggle">Proyectar Resplandor sobre los Post-its</label>
+            <input type="checkbox" id="highlightStickersToggle" class="switch-input" checked>
+          </div>
+          <span class="field-hint">Dibuja una delimitación luminosa sobre cada nota física detectada.</span>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label>Renderizado de Esferas Naturales (Sin estela)</label>
+            <span class="status-pill">Física 3D</span>
+          </div>
+          <span class="field-hint">Cálculo de sombreado difuso y punto especular sin efectos residuales de cometa.</span>
+        </div>
+
+        <div class="control-group">
+          <label>Modo de Pantalla:</label>
+          <div class="radio-cards">
+            <label class="radio-card">
+              <input type="radio" name="screenMode" value="projection" checked>
+              <div class="radio-content">
+                <strong>Proyección Pura</strong>
+                <span>Fondo negro absoluto (Optimizado para proyector)</span>
+              </div>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="screenMode" value="debug">
+              <div class="radio-content">
+                <strong>Supervisión Óptica</strong>
+                <span>Superpone la captura del sensor para alineación</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <label for="audioEnabledToggle">Generador Acústico Procedimental</label>
+            <input type="checkbox" id="audioEnabledToggle" class="switch-input" checked>
+          </div>
+          <span class="field-hint">Genera frecuencias armónicas en escala pentatónica según el vector de impacto.</span>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-header">
+            <label for="audioVolumeSlider">Nivel de Salida (Volumen):</label>
+            <span id="audioVolumeVal" class="slider-val">40%</span>
+          </div>
+          <input type="range" id="audioVolumeSlider" min="0" max="100" value="40">
+        </div>
+
+        <div class="control-group">
+          <label for="audioScaleSelect">Tímbrica / Algoritmo de Síntesis:</label>
+          <select id="audioScaleSelect">
+            <option value="marimba">Percusión Acústica Sutil (Madera / Marimba)</option>
+            <option value="crystal">Campana de Resonancia Armónica</option>
+            <option value="pulse">Pulso Acústico Suave (Atenuado)</option>
+            <option value="tone">Tono Puro de Calibración</option>
+          </select>
+        </div>
+      </section>
+
+    </div>
+
+    <footer class="panel-footer">
+      <div class="shortcuts-legend">
+        <span><kbd>H</kbd> Menú</span>
+        <span><kbd>F</kbd> Pantalla completa</span>
+        <span><kbd>R</kbd> Limpiar bolas</span>
+        <span><kbd>Espacio</kbd> Pausa</span>
+      </div>
+    </footer>
+  </aside>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ==========================================================================
+       LÓGICA JAVASCRIPT INTEGRADA (100% AUTÓNOMA, SIN DEPENDENCIAS EXTERNAS)
+       ========================================================================== -->
+  <script>
+/* ==========================================================================
+   1. PERSPECTIVE MAPPER (CALIBRACIÓN DE 4 ESQUINAS)
+   ========================================================================== */
+class PerspectiveMapper {
+  constructor() {
+    this.srcCorners = [
+      { x: 0.05, y: 0.05 },
+      { x: 0.95, y: 0.05 },
+      { x: 0.95, y: 0.95 },
+      { x: 0.05, y: 0.95 }
+    ];
+    this.matrix = null;
+    this.invMatrix = null;
+    this.computeHomography();
+  }
+
+  setCorner(index, x, y) {
+    if (index >= 0 && index < 4) {
+      this.srcCorners[index].x = Math.max(0, Math.min(1, x));
+      this.srcCorners[index].y = Math.max(0, Math.min(1, y));
+      this.computeHomography();
+    }
+  }
+
+  nudgeCorner(index, dx, dy) {
+    if (index >= 0 && index < 4) {
+      this.srcCorners[index].x = Math.max(0, Math.min(1, this.srcCorners[index].x + dx));
+      this.srcCorners[index].y = Math.max(0, Math.min(1, this.srcCorners[index].y + dy));
+      this.computeHomography();
+    }
+  }
+
+  resetCorners() {
+    this.srcCorners = [
+      { x: 0.05, y: 0.05 },
+      { x: 0.95, y: 0.05 },
+      { x: 0.95, y: 0.95 },
+      { x: 0.05, y: 0.95 }
+    ];
+    this.computeHomography();
+  }
+
+  computeHomography() {
+    const p = this.srcCorners;
+    const dst = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 }
+    ];
+    this.matrix = this.findHomography(p, dst);
+    if (this.matrix) {
+      this.invMatrix = this.invert3x3(this.matrix);
+    }
+  }
+
+  transform(u, v) {
+    if (!this.matrix) return { x: u, y: v };
+    const m = this.matrix;
+    const w = m[6] * u + m[7] * v + m[8];
+    if (Math.abs(w) < 0.000001) return { x: u, y: v };
+    return {
+      x: (m[0] * u + m[1] * v + m[2]) / w,
+      y: (m[3] * u + m[4] * v + m[5]) / w
+    };
+  }
+
+  findHomography(src, dst) {
+    const A = [];
+    for (let i = 0; i < 4; i++) {
+      const sx = src[i].x, sy = src[i].y;
+      const dx = dst[i].x, dy = dst[i].y;
+      A.push([sx, sy, 1, 0, 0, 0, -dx * sx, -dx * sy, dx]);
+      A.push([0, 0, 0, sx, sy, 1, -dy * sx, -dy * sy, dy]);
+    }
+    const M = [], b = [];
+    for (let i = 0; i < 8; i++) {
+      M.push(A[i].slice(0, 8));
+      b.push(A[i][8]);
+    }
+    const h = this.solveGaussian(M, b);
+    if (!h) return null;
+    return [
+      h[0], h[1], h[2],
+      h[3], h[4], h[5],
+      h[6], h[7], 1.0
+    ];
+  }
+
+  solveGaussian(A, b) {
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      let maxEl = Math.abs(A[i][i]), maxRow = i;
+      for (let k = i + 1; k < n; k++) {
+        if (Math.abs(A[k][i]) > maxEl) {
+          maxEl = Math.abs(A[k][i]);
+          maxRow = k;
+        }
+      }
+      for (let k = i; k < n; k++) {
+        const tmp = A[maxRow][k];
+        A[maxRow][k] = A[i][k];
+        A[i][k] = tmp;
+      }
+      const tmpB = b[maxRow];
+      b[maxRow] = b[i];
+      b[i] = tmpB;
+
+      if (Math.abs(A[i][i]) < 1e-9) return null;
+
+      for (let k = i + 1; k < n; k++) {
+        const c = -A[k][i] / A[i][i];
+        for (let j = i; j < n; j++) {
+          A[k][j] = (i === j) ? 0 : A[k][j] + c * A[i][j];
+        }
+        b[k] += c * b[i];
+      }
+    }
+    const x = new Array(n).fill(0);
+    for (let i = n - 1; i >= 0; i--) {
+      x[i] = b[i] / A[i][i];
+      for (let k = i - 1; k >= 0; k--) {
+        b[k] -= A[k][i] * x[i];
+      }
+    }
+    return x;
+  }
+
+  invert3x3(m) {
+    const a00 = m[0], a01 = m[1], a02 = m[2];
+    const a10 = m[3], a11 = m[4], a12 = m[5];
+    const a20 = m[6], a21 = m[7], a22 = m[8];
+
+    const b01 = a22 * a11 - a12 * a21;
+    const b11 = -a22 * a10 + a12 * a20;
+    const b21 = a21 * a10 - a11 * a20;
+
+    const det = a00 * b01 + a01 * b11 + a02 * b21;
+    if (Math.abs(det) < 1e-9) return null;
+
+    const invDet = 1.0 / det;
+    return [
+      b01 * invDet,
+      (-a22 * a01 + a02 * a21) * invDet,
+      (a12 * a01 - a02 * a11) * invDet,
+      b11 * invDet,
+      (a22 * a00 - a02 * a20) * invDet,
+      (-a12 * a00 + a02 * a10) * invDet,
+      b21 * invDet,
+      (-a21 * a00 + a01 * a20) * invDet,
+      (a11 * a00 - a01 * a10) * invDet
+    ];
+  }
+}
+
+/* ==========================================================================
+   2. COLOR TRACKER & POST-IT DETECTION
+   ========================================================================== */
+class ColorTracker {
+  constructor(videoElement, previewCanvas, perspectiveMapper) {
+    this.video = videoElement;
+    this.previewCanvas = previewCanvas;
+    this.ctx = previewCanvas.getContext('2d', { willReadFrequently: true });
+    this.mapper = perspectiveMapper;
+
+    this.procWidth = 640;
+    this.procHeight = 360;
+    this.procCanvas = document.createElement('canvas');
+    this.procCanvas.width = this.procWidth;
+    this.procCanvas.height = this.procHeight;
+    this.procCtx = this.procCanvas.getContext('2d', { willReadFrequently: true });
+
+    this.colorMode = 'center'; // 'center' | 'range'
+    this.targetHue = 60;
+    this.hueTolerance = 24;
+    this.minSaturation = 30;
+    this.minValue = 25;
+
+    // Rango HSV configurable tipo cv2.inRange (OpenCV)
+    this.rangeMinH = 38;
+    this.rangeMaxH = 82;
+    this.rangeMinS = 25;
+    this.rangeMaxS = 100;
+    this.rangeMinV = 25;
+    this.rangeMaxV = 100;
+
+    this.minArea = 45; // 45 px permite capturar notas a 2-4 metros
+    this.maxArea = 80000;
+    this.sizeOffset = 0; // Ajuste fino de margen (-0.3 a +0.3)
+    this.smoothingFactor = 0.70;
+
+    // Compensación milimétrica directa de posición y escala
+    this.manualOffsetX = 0;
+    this.manualOffsetY = 0;
+    this.manualScaleX = 1.0;
+    this.manualScaleY = 1.0;
+
+    this.showMask = false;
+    this.flipX = false;
+    this.flipY = false;
+
+    this.obstacles = [];
+    this.demoMode = false;
+    this.virtualObstacles = [];
+    this.currentCenterSample = null;
+
+    this.stream = null;
+    this.isStreaming = false;
+  }
+
+  updateResolution() {
+    const vw = this.video.videoWidth || 640;
+    const vh = this.video.videoHeight || 480;
+    const aspect = vw / vh;
+    this.procWidth = 640;
+    this.procHeight = Math.round(640 / aspect);
+    this.procCanvas.width = this.procWidth;
+    this.procCanvas.height = this.procHeight;
+  }
+
+  async startCamera(deviceId = null) {
+    try {
+      if (this.stream) {
+        this.stream.getTracks().forEach(t => t.stop());
+      }
+
+      const constraints = {
+        video: deviceId 
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      };
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("API de cámara no disponible en este contexto");
+      }
+
+      this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.video.srcObject = this.stream;
+      await this.video.play();
+      this.updateResolution();
+      this.isStreaming = true;
+      this.demoMode = false;
+      return { success: true };
+    } catch (err) {
+      console.warn("No se pudo iniciar la cámara web:", err);
+      return { success: false, error: err };
+    }
+  }
+
+  stopCamera() {
+    if (this.stream) {
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+    }
+    this.isStreaming = false;
+  }
+
+  /**
+   * Muestrea el color dentro del área central donde el usuario sostiene la tarjeta
+   */
+  sampleCenterCard() {
+    if (!this.isStreaming || this.video.readyState < 2) return null;
+
+    const w = this.procWidth;
+    const h = this.procHeight;
+    const boxSize = Math.max(36, Math.round(w * 0.08));
+    const startX = Math.floor((w - boxSize) / 2);
+    const startY = Math.floor((h - boxSize) / 2);
+
+    const imgData = this.procCtx.getImageData(startX, startY, boxSize, boxSize);
+    const d = imgData.data;
+
+    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      rSum += d[i];
+      gSum += d[i + 1];
+      bSum += d[i + 2];
+      count++;
+    }
+
+    if (count === 0) return null;
+    const r = Math.round(rSum / count);
+    const g = Math.round(gSum / count);
+    const b = Math.round(bSum / count);
+
+    const hsv = this.rgbToHsv(r, g, b);
+    return { rgb: { r, g, b }, hsv };
+  }
+
+  sampleCenterCardRange() {
+    if (!this.isStreaming || this.video.readyState < 2) return null;
+
+    const w = this.procWidth;
+    const h = this.procHeight;
+    const boxSize = Math.max(36, Math.round(w * 0.08));
+    const startX = Math.floor((w - boxSize) / 2);
+    const startY = Math.floor((h - boxSize) / 2);
+
+    const imgData = this.procCtx.getImageData(startX, startY, boxSize, boxSize);
+    const d = imgData.data;
+
+    let minH = 360, maxH = 0;
+    let minS = 100, maxS = 0;
+    let minV = 100, maxV = 0;
+    let count = 0;
+
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const hsv = this.rgbToHsv(r, g, b);
+      if (hsv.s >= 8 && hsv.v >= 10) {
+        minH = Math.min(minH, hsv.h);
+        maxH = Math.max(maxH, hsv.h);
+        minS = Math.min(minS, hsv.s);
+        maxS = Math.max(maxS, hsv.s);
+        minV = Math.min(minV, hsv.v);
+        maxV = Math.max(maxV, hsv.v);
+        count++;
+      }
+    }
+
+    if (count === 0) return null;
+
+    return {
+      minH: Math.max(0, minH - 12),
+      maxH: Math.min(360, maxH + 12),
+      minS: Math.max(10, minS - 15),
+      maxS: Math.min(100, maxS + 15),
+      minV: Math.max(15, minV - 15),
+      maxV: Math.min(100, maxV + 15)
+    };
+  }
+
+  sampleColorAt(normX, normY) {
+    if (!this.isStreaming || this.video.readyState < 2) return null;
+
+    this.procCtx.save();
+    if (this.flipX || this.flipY) {
+      this.procCtx.translate(this.flipX ? this.procWidth : 0, this.flipY ? this.procHeight : 0);
+      this.procCtx.scale(this.flipX ? -1 : 1, this.flipY ? -1 : 1);
+    }
+    this.procCtx.drawImage(this.video, 0, 0, this.procWidth, this.procHeight);
+    this.procCtx.restore();
+
+    const px = Math.floor(Math.max(0, Math.min(this.procWidth - 1, normX * this.procWidth)));
+    const py = Math.floor(Math.max(0, Math.min(this.procHeight - 1, normY * this.procHeight)));
+
+    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+    const half = 2;
+    const imgData = this.procCtx.getImageData(
+      Math.max(0, px - half),
+      Math.max(0, py - half),
+      Math.min(5, this.procWidth - px),
+      Math.min(5, this.procHeight - py)
+    );
+    const d = imgData.data;
+
+    for (let i = 0; i < d.length; i += 4) {
+      rSum += d[i];
+      gSum += d[i + 1];
+      bSum += d[i + 2];
+      count++;
+    }
+
+    const r = Math.round(rSum / count);
+    const g = Math.round(gSum / count);
+    const b = Math.round(bSum / count);
+
+    const hsv = this.rgbToHsv(r, g, b);
+    this.targetHue = hsv.h;
+    this.minSaturation = Math.max(20, Math.floor(hsv.s * 0.7));
+    this.minValue = Math.max(25, Math.floor(hsv.v * 0.7));
+
+    // Ajustar también rango OpenCV equivalente
+    this.rangeMinH = Math.max(0, hsv.h - 18);
+    this.rangeMaxH = Math.min(360, hsv.h + 18);
+    this.rangeMinS = Math.max(15, hsv.s - 25);
+    this.rangeMaxS = 100;
+    this.rangeMinV = Math.max(20, hsv.v - 25);
+    this.rangeMaxV = 100;
+
+    return { rgb: { r, g, b }, hsv };
+  }
+
+  processFrame() {
+    if (this.demoMode) return this.virtualObstacles;
+    if (!this.isStreaming || this.video.readyState < 2) return this.obstacles;
+
+    const w = this.procWidth;
+    const h = this.procHeight;
+
+    this.procCtx.save();
+    if (this.flipX || this.flipY) {
+      this.procCtx.translate(this.flipX ? w : 0, this.flipY ? h : 0);
+      this.procCtx.scale(this.flipX ? -1 : 1, this.flipY ? -1 : 1);
+    }
+    this.procCtx.drawImage(this.video, 0, 0, w, h);
+    this.procCtx.restore();
+
+    // Actualizar muestra en tiempo real del área central donde se ubica la tarjeta
+    this.currentCenterSample = this.sampleCenterCard();
+
+    const frameData = this.procCtx.getImageData(0, 0, w, h);
+    const data = frameData.data;
+
+    const cellSize = 3;
+    const gridCols = Math.floor(w / cellSize);
+    const gridRows = Math.floor(h / cellSize);
+    const grid = new Uint8Array(gridCols * gridRows);
+
+    const maskData = this.showMask ? this.procCtx.createImageData(w, h) : null;
+    const md = maskData ? maskData.data : null;
+
+    const isRangeMode = (this.colorMode === 'range');
+    const tHue = this.targetHue;
+    const tTol = this.hueTolerance;
+    const minS = this.minSaturation / 100;
+    const minV = this.minValue / 100;
+
+    const rMinH = this.rangeMinH;
+    const rMaxH = this.rangeMaxH;
+    const rMinS = this.rangeMinS / 100;
+    const rMaxS = this.rangeMaxS / 100;
+    const rMinV = this.rangeMinV / 100;
+    const rMaxV = this.rangeMaxV / 100;
+
+    for (let gy = 0; gy < gridRows; gy++) {
+      for (let gx = 0; gx < gridCols; gx++) {
+        let matchCount = 0;
+        const startX = gx * cellSize;
+        const startY = gy * cellSize;
+
+        for (let py = 0; py < cellSize; py++) {
+          const y = startY + py;
+          for (let px = 0; px < cellSize; px++) {
+            const x = startX + px;
+            const idx = (y * w + x) * 4;
+
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const delta = max - min;
+            const v = max / 255;
+            const s = max === 0 ? 0 : delta / max;
+
+            let isMatch = false;
+
+            if (isRangeMode) {
+              if (v >= rMinV && v <= rMaxV && s >= rMinS && s <= rMaxS) {
+                let hue = 0;
+                if (delta > 0) {
+                  if (max === r) hue = 60 * (((g - b) / delta) % 6);
+                  else if (max === g) hue = 60 * (((b - r) / delta) + 2);
+                  else hue = 60 * (((r - g) / delta) + 4);
+                  if (hue < 0) hue += 360;
+                }
+
+                if (rMinH <= rMaxH) {
+                  isMatch = (hue >= rMinH && hue <= rMaxH);
+                } else {
+                  isMatch = (hue >= rMinH || hue <= rMaxH);
+                }
+              }
+            } else {
+              if (v >= minV && s >= minS) {
+                let hue = 0;
+                if (delta > 0) {
+                  if (max === r) hue = 60 * (((g - b) / delta) % 6);
+                  else if (max === g) hue = 60 * (((b - r) / delta) + 2);
+                  else hue = 60 * (((r - g) / delta) + 4);
+                  if (hue < 0) hue += 360;
+                }
+
+                const diff = Math.min(Math.abs(hue - tHue), 360 - Math.abs(hue - tHue));
+                if (diff <= tTol) {
+                  isMatch = true;
+                }
+              }
+            }
+
+            if (isMatch) {
+              matchCount++;
+            }
+
+            if (md) {
+              const mIdx = idx;
+              if (isMatch) {
+                md[mIdx] = 0; md[mIdx + 1] = 229; md[mIdx + 2] = 255; md[mIdx + 3] = 255;
+              } else {
+                md[mIdx] = 10; md[mIdx + 1] = 12; md[mIdx + 2] = 18; md[mIdx + 3] = 255;
+              }
+            }
+          }
+        }
+
+        if (matchCount >= (cellSize * cellSize * 0.35)) {
+          grid[gy * gridCols + gx] = 1;
+        }
+      }
+    }
+
+    const visited = new Uint8Array(gridCols * gridRows);
+    const rawBoxes = [];
+
+    for (let gy = 0; gy < gridRows; gy++) {
+      for (let gx = 0; gx < gridCols; gx++) {
+        const gIdx = gy * gridCols + gx;
+        if (grid[gIdx] === 1 && visited[gIdx] === 0) {
+          let minGX = gx, maxGX = gx;
+          let minGY = gy, maxGY = gy;
+          let cellCount = 0;
+
+          const queue = [gx, gy];
+          visited[gIdx] = 1;
+
+          while (queue.length > 0) {
+            const cy = queue.pop();
+            const cx = queue.pop();
+            cellCount++;
+
+            if (cx < minGX) minGX = cx;
+            if (cx > maxGX) maxGX = cx;
+            if (cy < minGY) minGY = cy;
+            if (cy > maxGY) maxGY = cy;
+
+            const neighbors = [
+              [cx + 1, cy], [cx - 1, cy],
+              [cx, cy + 1], [cx, cy - 1]
+            ];
+
+            for (const [nx, ny] of neighbors) {
+              if (nx >= 0 && nx < gridCols && ny >= 0 && ny < gridRows) {
+                const nIdx = ny * gridCols + nx;
+                if (grid[nIdx] === 1 && visited[nIdx] === 0) {
+                  visited[nIdx] = 1;
+                  queue.push(nx, ny);
+                }
+              }
+            }
+          }
+
+          const pixelArea = cellCount * cellSize * cellSize;
+          if (pixelArea >= this.minArea && pixelArea <= this.maxArea) {
+            const bx = (minGX * cellSize) / w;
+            const by = (minGY * cellSize) / h;
+            const bw = ((maxGX - minGX + 1) * cellSize) / w;
+            const bh = ((maxGY - minGY + 1) * cellSize) / h;
+
+            rawBoxes.push({
+              x: bx,
+              y: by,
+              width: bw,
+              height: bh,
+              area: pixelArea
+            });
+          }
+        }
+      }
+    }
+
+    const mappedBoxes = rawBoxes.map(b => {
+      const pTL = this.mapper.transform(b.x, b.y);
+      const pBR = this.mapper.transform(b.x + b.width, b.y + b.height);
+      const pTR = this.mapper.transform(b.x + b.width, b.y);
+      const pBL = this.mapper.transform(b.x, b.y + b.height);
+
+      const minX = Math.min(pTL.x, pBR.x, pTR.x, pBL.x);
+      const maxX = Math.max(pTL.x, pBR.x, pTR.x, pBL.x);
+      const minY = Math.min(pTL.y, pBR.y, pTR.y, pBL.y);
+      const maxY = Math.max(pTL.y, pBR.y, pTR.y, pBL.y);
+
+      let rawW = Math.max(0.015, maxX - minX);
+      let rawH = Math.max(0.015, maxY - minY);
+      let rawCenterX = (minX + maxX) / 2;
+      let rawCenterY = (minY + maxY) / 2;
+
+      // 1. Escala milimétrica fina
+      let finalW = rawW * (this.manualScaleX || 1.0);
+      let finalH = rawH * (this.manualScaleY || 1.0);
+
+      // 2. Si hay ajuste fino de margen físico
+      if (this.sizeOffset) {
+        finalW += finalW * this.sizeOffset;
+        finalH += finalH * this.sizeOffset;
+      }
+
+      // 3. Compensación milimétrica directa de posición (Offset X y Offset Y)
+      let finalCenterX = rawCenterX + (this.manualOffsetX || 0);
+      let finalCenterY = rawCenterY + (this.manualOffsetY || 0);
+
+      let finalX = Math.max(0, Math.min(1 - finalW, finalCenterX - finalW / 2));
+      let finalY = Math.max(0, Math.min(1 - finalH, finalCenterY - finalH / 2));
+
+      return {
+        x: finalX,
+        y: finalY,
+        width: Math.max(0.01, finalW),
+        height: Math.max(0.01, finalH),
+        corners: [pTL, pTR, pBR, pBL]
+      };
+    });
+
+    this.smoothObstacles(mappedBoxes);
+    this.renderPreview(maskData, rawBoxes);
+
+    return this.obstacles;
+  }
+
+  smoothObstacles(newBoxes) {
+    const factor = this.smoothingFactor;
+    const matchThreshold = 0.08;
+    const updated = [];
+    const unmatchedNew = [...newBoxes];
+
+    for (const oldBox of this.obstacles) {
+      let bestIdx = -1;
+      let bestDist = Infinity;
+
+      for (let i = 0; i < unmatchedNew.length; i++) {
+        const nb = unmatchedNew[i];
+        const dist = Math.hypot(
+          (oldBox.x + oldBox.width / 2) - (nb.x + nb.width / 2),
+          (oldBox.y + oldBox.height / 2) - (nb.y + nb.height / 2)
+        );
+        if (dist < bestDist && dist < matchThreshold) {
+          bestDist = dist;
+          bestIdx = i;
+        }
+      }
+
+      if (bestIdx !== -1) {
+        const nb = unmatchedNew.splice(bestIdx, 1)[0];
+        updated.push({
+          x: oldBox.x * factor + nb.x * (1 - factor),
+          y: oldBox.y * factor + nb.y * (1 - factor),
+          width: oldBox.width * factor + nb.width * (1 - factor),
+          height: oldBox.height * factor + nb.height * (1 - factor),
+          corners: nb.corners,
+          lifetime: (oldBox.lifetime || 0) + 1,
+          missCount: 0
+        });
+      } else {
+        const miss = (oldBox.missCount || 0) + 1;
+        if (miss < 6) {
+          updated.push({
+            ...oldBox,
+            missCount: miss
+          });
+        }
+      }
+    }
+
+    for (const nb of unmatchedNew) {
+      updated.push({
+        ...nb,
+        lifetime: 1,
+        missCount: 0
+      });
+    }
+
+    this.obstacles = updated;
+  }
+
+  renderPreview(maskData, rawBoxes) {
+    const pw = this.previewCanvas.width;
+    const ph = this.previewCanvas.height;
+
+    if (this.showMask && maskData) {
+      this.ctx.putImageData(maskData, 0, 0);
+    } else {
+      this.ctx.drawImage(this.procCanvas, 0, 0, pw, ph);
+    }
+
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = '#00e5ff';
+    this.ctx.fillStyle = 'rgba(0, 229, 255, 0.2)';
+
+    for (const box of rawBoxes) {
+      const rx = box.x * pw;
+      const ry = box.y * ph;
+      const rw = box.width * pw;
+      const rh = box.height * ph;
+      this.ctx.fillRect(rx, ry, rw, rh);
+      this.ctx.strokeRect(rx, ry, rw, rh);
+    }
+  }
+
+  rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    const s = max === 0 ? 0 : d / max;
+    const v = max;
+
+    if (max !== min) {
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+
+    return {
+      h: Math.round(h * 360),
+      s: Math.round(s * 100),
+      v: Math.round(v * 100)
+    };
+  }
+
+  setDemoMode(enabled = true) {
+    this.demoMode = enabled;
+    if (enabled) {
+      this.stopCamera();
+      this.virtualObstacles = [
+        { x: 0.15, y: 0.28, width: 0.16, height: 0.08, lifetime: 999 },
+        { x: 0.65, y: 0.32, width: 0.18, height: 0.08, lifetime: 999 },
+        { x: 0.38, y: 0.50, width: 0.24, height: 0.09, lifetime: 999 },
+        { x: 0.18, y: 0.70, width: 0.18, height: 0.08, lifetime: 999 },
+        { x: 0.60, y: 0.74, width: 0.22, height: 0.08, lifetime: 999 }
+      ];
+      this.obstacles = [...this.virtualObstacles];
+    }
+  }
+
+  addVirtualObstacle(normX, normY, width = 0.16, height = 0.08) {
+    const ob = {
+      x: Math.max(0, normX - width / 2),
+      y: Math.max(0, normY - height / 2),
+      width,
+      height,
+      lifetime: 999
+    };
+    this.virtualObstacles.push(ob);
+    this.obstacles = [...this.virtualObstacles];
+  }
+}
+
+/* ==========================================================================
+   3. PHYSICS ENGINE (SIMULACIÓN 2D DE BOLAS Y PARTICULAS)
+   ========================================================================== */
+class PhysicsEngine {
+  constructor(canvas, effectsCanvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.effectsCanvas = effectsCanvas;
+    this.effectsCtx = effectsCanvas.getContext('2d');
+
+    this.balls = [];
+    this.particles = [];
+
+    this.gravity = 0.45;
+    this.bounciness = 0.75;
+    this.friction = 0.992;
+    this.ballRadius = 10;
+    this.maxBalls = 120;
+    this.spawnRate = 8;
+    this.lastSpawnTime = 0;
+
+    this.spawnerMode = 'rain';
+    this.pendulumAngle = 0;
+
+    this.ballStyle = 'natural-white';
+    this.colorPalettes = {
+      'natural-white': [
+        { base: '#ffffff', shade: '#64748b' },
+        { base: '#f1f5f9', shade: '#475569' },
+        { base: '#e2e8f0', shade: '#334155' }
+      ],
+      'classic': [
+        { base: '#ffffff', shade: '#64748b' },
+        { base: '#f59e0b', shade: '#78350f' },
+        { base: '#38bdf8', shade: '#0369a1' },
+        { base: '#ef4444', shade: '#7f1d1d' },
+        { base: '#10b981', shade: '#064e3b' }
+      ],
+      'monochrome': [
+        { base: '#ffffff', shade: '#475569' }
+      ],
+      'slate': [
+        { base: '#e2e8f0', shade: '#334155' },
+        { base: '#94a3b8', shade: '#1e293b' },
+        { base: '#38bdf8', shade: '#0f172a' }
+      ]
+    };
+
+    this.enableSplatter = true;
+    this.highlightStickers = true;
+    this.debugMode = false;
+    this.onCollision = null;
+
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  resize() {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
+    this.effectsCanvas.width = this.width;
+    this.effectsCanvas.height = this.height;
+  }
+
+  spawnBall(customX = null, customY = null, customVx = null, customVy = null) {
+    if (this.balls.length >= this.maxBalls) {
+      this.balls.shift();
+    }
+
+    let x = customX;
+    let y = customY !== null ? customY : -this.ballRadius;
+    let vx = customVx !== null ? customVx : (Math.random() - 0.5) * 1.5;
+    let vy = customVy !== null ? customVy : Math.random() * 2 + 1;
+
+    if (x === null) {
+      switch (this.spawnerMode) {
+        case 'rain':
+          x = Math.random() * (this.width - 60) + 30;
+          break;
+        case 'center':
+          x = this.width / 2 + (Math.random() - 0.5) * 40;
+          break;
+        case 'moving':
+          this.pendulumAngle += 0.08;
+          x = (this.width / 2) + Math.sin(this.pendulumAngle) * (this.width * 0.4);
+          break;
+        default:
+          x = Math.random() * this.width;
+          break;
+      }
+    }
+
+    const palette = this.colorPalettes[this.ballStyle] || this.colorPalettes['natural-white'];
+    const colorObj = palette[Math.floor(Math.random() * palette.length)];
+
+    this.balls.push({
+      x, y, vx, vy,
+      radius: this.ballRadius * (0.85 + Math.random() * 0.3),
+      color: colorObj,
+      prevX: x,
+      prevY: y,
+      life: 0
+    });
+  }
+
+  burst(count = 30) {
+    for (let i = 0; i < count; i++) {
+      setTimeout(() => {
+        const x = (this.width / 2) + (Math.random() - 0.5) * (this.width * 0.6);
+        this.spawnBall(x, 10, (Math.random() - 0.5) * 6, Math.random() * 3 + 2);
+      }, i * 35);
+    }
+  }
+
+  clearBalls() {
+    this.balls = [];
+    this.particles = [];
+    this.ctx.fillStyle = '#000000';
+    this.ctx.fillRect(0, 0, this.width, this.height);
+    this.effectsCtx.clearRect(0, 0, this.width, this.height);
+  }
+
+  update(obstacles, timestamp) {
+    if (this.spawnRate > 0) {
+      const interval = 1000 / this.spawnRate;
+      if (timestamp - this.lastSpawnTime >= interval) {
+        this.spawnBall();
+        this.lastSpawnTime = timestamp;
+      }
+    }
+
+    // Limpieza completa del frame: cero estelas, cero efecto cometa ni ghosting
+    this.ctx.fillStyle = '#000000';
+    this.ctx.fillRect(0, 0, this.width, this.height);
+    this.effectsCtx.clearRect(0, 0, this.width, this.height);
+
+    if (this.highlightStickers && obstacles.length > 0) {
+      this.drawStickerHighlights(obstacles);
+    }
+
+    this.updateParticles();
+
+    const pixelObstacles = obstacles.map(ob => ({
+      x: ob.x * this.width,
+      y: ob.y * this.height,
+      w: ob.width * this.width,
+      h: ob.height * this.height
+    }));
+
+    const activeBalls = [];
+
+    for (let i = 0; i < this.balls.length; i++) {
+      const b = this.balls[i];
+      b.prevX = b.x;
+      b.prevY = b.y;
+
+      b.vy += this.gravity;
+      b.vx *= this.friction;
+      b.vy *= this.friction;
+
+      b.x += b.vx;
+      b.y += b.vy;
+      b.life++;
+
+      if (b.x - b.radius < 0) {
+        b.x = b.radius;
+        b.vx = -b.vx * this.bounciness;
+      } else if (b.x + b.radius > this.width) {
+        b.x = this.width - b.radius;
+        b.vx = -b.vx * this.bounciness;
+      }
+
+      for (const ob of pixelObstacles) {
+        this.checkBallObstacleCollision(b, ob);
+      }
+
+      this.drawBall(b);
+
+      if (b.y - b.radius < this.height + 40 && b.x > -60 && b.x < this.width + 60) {
+        activeBalls.push(b);
+      }
+    }
+
+    this.balls = activeBalls;
+  }
+
+  checkBallObstacleCollision(ball, ob) {
+    const nearestX = Math.max(ob.x, Math.min(ball.x, ob.x + ob.w));
+    const nearestY = Math.max(ob.y, Math.min(ball.y, ob.y + ob.h));
+
+    const dx = ball.x - nearestX;
+    const dy = ball.y - nearestY;
+    const distanceSq = dx * dx + dy * dy;
+
+    if (distanceSq < ball.radius * ball.radius) {
+      const dist = Math.sqrt(distanceSq);
+      let nx = 0, ny = -1;
+
+      if (dist > 0.0001) {
+        nx = dx / dist;
+        ny = dy / dist;
+      }
+
+      const overlap = ball.radius - dist;
+      ball.x += nx * overlap;
+      ball.y += ny * overlap;
+
+      const velAlongNormal = ball.vx * nx + ball.vy * ny;
+
+      if (velAlongNormal < 0) {
+        const impulse = -(1 + this.bounciness) * velAlongNormal;
+        ball.vx += nx * impulse;
+        ball.vy += ny * impulse;
+        ball.vx += (Math.random() - 0.5) * 1.2;
+
+        const impactSpeed = Math.hypot(ball.vx, ball.vy);
+        const particleColor = (typeof ball.color === 'object') ? ball.color.base : ball.color;
+
+        if (this.enableSplatter && impactSpeed > 2.5) {
+          this.spawnSplatter(nearestX, nearestY, particleColor, nx, ny, impactSpeed);
+        }
+
+        if (this.onCollision && impactSpeed > 1.5) {
+          this.onCollision({
+            x: ball.x / this.width,
+            y: ball.y / this.height,
+            speed: impactSpeed,
+            color: particleColor
+          });
+        }
+      }
+    }
+  }
+
+  spawnSplatter(x, y, color, nx, ny, speed) {
+    // Micro-partículas sutiles de impacto físico (sin estallido exagerado)
+    const count = Math.min(6, Math.floor(speed * 0.8) + 2);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.atan2(ny, nx) + (Math.random() - 0.5) * Math.PI * 0.6;
+      const pSpeed = (Math.random() * 0.4 + 0.2) * speed * 0.4;
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * pSpeed,
+        vy: Math.sin(angle) * pSpeed - Math.random() * 0.8,
+        radius: Math.random() * 1.2 + 0.8,
+        color,
+        alpha: 0.9,
+        decay: Math.random() * 0.05 + 0.04
+      });
+    }
+  }
+
+  updateParticles() {
+    const nextParticles = [];
+    this.effectsCtx.save();
+
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.2;
+      p.alpha -= p.decay;
+
+      if (p.alpha > 0) {
+        this.effectsCtx.fillStyle = p.color;
+        this.effectsCtx.globalAlpha = p.alpha;
+        this.effectsCtx.beginPath();
+        this.effectsCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        this.effectsCtx.fill();
+        nextParticles.push(p);
+      }
+    }
+
+    this.effectsCtx.restore();
+    this.particles = nextParticles;
+  }
+
+  drawBall(b) {
+    // Esfera física sólida natural con iluminación 3D y brillo especular
+    const { x, y, radius, color } = b;
+    const baseColor = (typeof color === 'object') ? color.base : (color || '#ffffff');
+    const shadeColor = (typeof color === 'object') ? color.shade : '#334155';
+    const highlightColor = (typeof color === 'object') ? (color.highlight || '#ffffff') : '#ffffff';
+
+    this.ctx.save();
+
+    // Punto focal de luz (arriba a la izquierda)
+    const lightX = x - radius * 0.35;
+    const lightY = y - radius * 0.35;
+
+    // Gradiente esférico tridimensional
+    const grad = this.ctx.createRadialGradient(
+      lightX, lightY, radius * 0.08,
+      x, y, radius
+    );
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.25, highlightColor);
+    grad.addColorStop(0.65, baseColor);
+    grad.addColorStop(1, shadeColor);
+
+    this.ctx.fillStyle = grad;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Contorno físico nítido y fino
+    this.ctx.strokeStyle = shadeColor;
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.ctx.stroke();
+
+    // Pequeño reflejo especular en el punto de contacto de luz
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    this.ctx.beginPath();
+    this.ctx.arc(lightX, lightY, Math.max(1, radius * 0.18), 0, Math.PI * 2);
+    this.ctx.fill();
+
+    this.ctx.restore();
+  }
+
+  drawStickerHighlights(obstacles) {
+    // Delimitador técnico rectangular de precisión (sin halos ni resplandores de neón)
+    this.ctx.save();
+
+    for (const ob of obstacles) {
+      const rx = Math.round(ob.x * this.width);
+      const ry = Math.round(ob.y * this.height);
+      const rw = Math.round(ob.width * this.width);
+      const rh = Math.round(ob.height * this.height);
+
+      // Marco técnico nítido
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.strokeRect(rx, ry, rw, rh);
+
+      // Relleno tenue de confirmación de plano
+      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+      this.ctx.fillRect(rx, ry, rw, rh);
+
+      // Ticks angulares de registro óptico
+      const tick = 6;
+      this.ctx.strokeStyle = '#ffffff';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      // Superior izquierda
+      this.ctx.moveTo(rx, ry + tick); this.ctx.lineTo(rx, ry); this.ctx.lineTo(rx + tick, ry);
+      // Superior derecha
+      this.ctx.moveTo(rx + rw - tick, ry); this.ctx.lineTo(rx + rw, ry); this.ctx.lineTo(rx + rw, ry + tick);
+      // Inferior derecha
+      this.ctx.moveTo(rx + rw, ry + rh - tick); this.ctx.lineTo(rx + rw, ry + rh); this.ctx.lineTo(rx + rw - tick, ry + rh);
+      // Inferior izquierda
+      this.ctx.moveTo(rx + tick, ry + rh); this.ctx.lineTo(rx, ry + rh); this.ctx.lineTo(rx, ry + rh - tick);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+}
+
+/* ==========================================================================
+   4. PROCEDURAL AUDIO SYNTHESIZER (WEB AUDIO API)
+   ========================================================================== */
+class SoundSynthesizer {
+  constructor() {
+    this.ctx = null;
+    this.masterGain = null;
+    this.enabled = true;
+    this.volume = 0.4;
+    this.style = 'marimba';
+
+    this.scale = [
+      261.63, 293.66, 329.63, 392.00, 440.00,
+      523.25, 587.33, 659.25, 783.99, 880.00, 1046.50
+    ];
+
+    this.lastPlayTime = 0;
+    this.minInterval = 0.045;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
+        this.masterGain.connect(this.ctx.destination);
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  setVolume(val) {
+    this.volume = Math.max(0, Math.min(1, val));
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
+    }
+  }
+
+  playBounce(normX = 0.5, speed = 5) {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastPlayTime < this.minInterval) return;
+    this.lastPlayTime = now;
+
+    const clampedX = Math.max(0, Math.min(1, normX));
+    const noteIndex = Math.floor(clampedX * (this.scale.length - 1));
+    const freq = this.scale[noteIndex] || 440;
+    const velocityGain = Math.min(1.0, Math.max(0.2, speed / 10));
+
+    switch (this.style) {
+      case 'marimba': this.synthMarimba(freq, velocityGain, now); break;
+      case 'crystal': this.synthCrystal(freq, velocityGain, now); break;
+      case 'pulse': this.synthPulse(freq, velocityGain, now); break;
+      case 'tone': this.synthTone(freq, velocityGain, now); break;
+      default: this.synthMarimba(freq, velocityGain, now); break;
+    }
+  }
+
+  synthMarimba(freq, gainMult, now) {
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.5 * gainMult, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  }
+
+  synthCrystal(freq, gainMult, now) {
+    const osc = this.ctx.createOscillator();
+    const harm = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, now);
+    harm.type = 'sine';
+    harm.frequency.setValueAtTime(freq * 2.01, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.4 * gainMult, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    osc.connect(gain);
+    harm.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now); harm.start(now);
+    osc.stop(now + 0.5); harm.stop(now + 0.5);
+  }
+
+  synthPulse(freq, gainMult, now) {
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq * 0.85, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.35 * gainMult, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.18);
+  }
+
+  synthTone(freq, gainMult, now) {
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.25 * gainMult, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+}
+
+/* ==========================================================================
+   5. CONTROLADOR PRINCIPAL DE LA APLICACIÓN (APP)
+   ========================================================================== */
+document.addEventListener('DOMContentLoaded', () => {
+  const projectionCanvas = document.getElementById('projectionCanvas');
+  const effectsCanvas = document.getElementById('effectsCanvas');
+  const webcamVideo = document.getElementById('webcamVideo');
+  const cameraFeedCanvas = document.getElementById('cameraFeedCanvas');
+  const calibrationCanvas = document.getElementById('calibrationCanvas');
+
+  const configPanel = document.getElementById('configPanel');
+  const floatingMenuBtn = document.getElementById('floatingMenuBtn');
+  const closePanelBtn = document.getElementById('closePanelBtn');
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+  const welcomeOverlay = document.getElementById('welcomeOverlay');
+  const startCameraBtn = document.getElementById('startCameraBtn');
+  const demoModeBtn = document.getElementById('demoModeBtn');
+
+  const cameraSelect = document.getElementById('cameraSelect');
+  const refreshCamerasBtn = document.getElementById('refreshCamerasBtn');
+  const pipetteToolBtn = document.getElementById('pipetteToolBtn');
+  const pipetteCrosshair = document.getElementById('pipetteCrosshair');
+  const eyedropperStatus = document.getElementById('eyedropperStatus');
+  const sampledColorPreview = document.getElementById('sampledColorPreview');
+  const sampledColorValues = document.getElementById('sampledColorValues');
+  const cloneCardBtn = document.getElementById('cloneCardBtn');
+  const liveCardSwatch = document.getElementById('liveCardSwatch');
+  const liveCardHsv = document.getElementById('liveCardHsv');
+  const cardFocusReticle = document.getElementById('cardFocusReticle');
+
+  const hueSlider = document.getElementById('hueSlider');
+  const hueVal = document.getElementById('hueVal');
+  const hueToleranceSlider = document.getElementById('hueToleranceSlider');
+  const hueToleranceVal = document.getElementById('hueToleranceVal');
+  const minSatSlider = document.getElementById('minSatSlider');
+  const minSatVal = document.getElementById('minSatVal');
+  const minValSlider = document.getElementById('minValSlider');
+  const minValVal = document.getElementById('minValVal');
+  const minAreaSlider = document.getElementById('minAreaSlider');
+  const minAreaVal = document.getElementById('minAreaVal');
+  const maxAreaSlider = document.getElementById('maxAreaSlider');
+  const maxAreaVal = document.getElementById('maxAreaVal');
+  const sizeOffsetSlider = document.getElementById('sizeOffsetSlider');
+  const sizeOffsetVal = document.getElementById('sizeOffsetVal');
+  const smoothingSlider = document.getElementById('smoothingSlider');
+  const smoothingVal = document.getElementById('smoothingVal');
+  const showMaskToggle = document.getElementById('showMaskToggle');
+
+  const colorDetectionModeRadios = document.querySelectorAll('input[name="colorDetectionMode"]');
+  const colorModeCenterControls = document.getElementById('colorModeCenterControls');
+  const colorModeRangeControls = document.getElementById('colorModeRangeControls');
+  const rangeMinHueSlider = document.getElementById('rangeMinHueSlider');
+  const rangeMinHueVal = document.getElementById('rangeMinHueVal');
+  const rangeMaxHueSlider = document.getElementById('rangeMaxHueSlider');
+  const rangeMaxHueVal = document.getElementById('rangeMaxHueVal');
+  const rangeMinSatSlider = document.getElementById('rangeMinSatSlider');
+  const rangeMinSatVal = document.getElementById('rangeMinSatVal');
+  const rangeMaxSatSlider = document.getElementById('rangeMaxSatSlider');
+  const rangeMaxSatVal = document.getElementById('rangeMaxSatVal');
+  const rangeMinValSlider = document.getElementById('rangeMinValSlider');
+  const rangeMinValVal = document.getElementById('rangeMinValVal');
+  const rangeMaxValSlider = document.getElementById('rangeMaxValSlider');
+  const rangeMaxValVal = document.getElementById('rangeMaxValVal');
+  const opencvCodePreview = document.getElementById('opencvCodePreview');
+
+  const resetCalibrationBtn = document.getElementById('resetCalibrationBtn');
+  const toggleTestPatternBtn = document.getElementById('toggleTestPatternBtn');
+  const flipCameraXToggle = document.getElementById('flipCameraXToggle');
+  const flipCameraYToggle = document.getElementById('flipCameraYToggle');
+  const liveCameraWallToggle = document.getElementById('liveCameraWallToggle');
+  const offsetXSlider = document.getElementById('offsetXSlider');
+  const offsetXVal = document.getElementById('offsetXVal');
+  const offsetYSlider = document.getElementById('offsetYSlider');
+  const offsetYVal = document.getElementById('offsetYVal');
+  const scaleXSlider = document.getElementById('scaleXSlider');
+  const scaleXVal = document.getElementById('scaleXVal');
+  const scaleYSlider = document.getElementById('scaleYSlider');
+  const scaleYVal = document.getElementById('scaleYVal');
+  const resetOffsetsBtn = document.getElementById('resetOffsetsBtn');
+  const cornerBtns = document.querySelectorAll('.btn-corner');
+
+  const spawnRateSlider = document.getElementById('spawnRateSlider');
+  const spawnRateVal = document.getElementById('spawnRateVal');
+  const gravitySlider = document.getElementById('gravitySlider');
+  const gravityVal = document.getElementById('gravityVal');
+  const bouncinessSlider = document.getElementById('bouncinessSlider');
+  const bouncinessVal = document.getElementById('bouncinessVal');
+  const ballRadiusSlider = document.getElementById('ballRadiusSlider');
+  const ballRadiusVal = document.getElementById('ballRadiusVal');
+  const maxBallsSlider = document.getElementById('maxBallsSlider');
+  const maxBallsVal = document.getElementById('maxBallsVal');
+  const ballStyleSelect = document.getElementById('ballStyleSelect');
+  const spawnerModeSelect = document.getElementById('spawnerModeSelect');
+  const clearBallsBtn = document.getElementById('clearBallsBtn');
+  const burstBallsBtn = document.getElementById('burstBallsBtn');
+
+  const splatterToggle = document.getElementById('splatterToggle');
+  const highlightStickersToggle = document.getElementById('highlightStickersToggle');
+  const trailLengthSlider = document.getElementById('trailLengthSlider');
+  const trailLengthVal = document.getElementById('trailLengthVal');
+  const audioEnabledToggle = document.getElementById('audioEnabledToggle');
+  const audioVolumeSlider = document.getElementById('audioVolumeSlider');
+  const audioVolumeVal = document.getElementById('audioVolumeVal');
+  const audioScaleSelect = document.getElementById('audioScaleSelect');
+
+  const toastContainer = document.getElementById('toastContainer');
+
+  const mapper = new PerspectiveMapper();
+  const tracker = new ColorTracker(webcamVideo, cameraFeedCanvas, mapper);
+  const physics = new PhysicsEngine(projectionCanvas, effectsCanvas);
+  const audio = new SoundSynthesizer();
+
+  physics.onCollision = (collisionData) => {
+    audio.playBounce(collisionData.x, collisionData.speed);
+  };
+
+  let isPanelVisible = false;
+  let isPipetteActive = false;
+  let isTestPatternActive = false;
+  let isSimulationPaused = false;
+  let activeCornerDrag = -1;
+  let activeCornerSelected = 0;
+  let currentActiveTab = 'tab-color';
+
+  const postitPresets = {
+    yellow: {
+      center: { h: 60, tol: 24, s: 35, v: 30 },
+      range:  { minH: 38, maxH: 82, minS: 25, maxS: 100, minV: 25, maxV: 100 }
+    },
+    green: {
+      center: { h: 125, tol: 28, s: 35, v: 30 },
+      range:  { minH: 95, maxH: 155, minS: 25, maxS: 100, minV: 25, maxV: 100 }
+    },
+    pink: {
+      center: { h: 335, tol: 25, s: 35, v: 30 },
+      range:  { minH: 310, maxH: 360, minS: 25, maxS: 100, minV: 25, maxV: 100 }
+    },
+    orange: {
+      center: { h: 25, tol: 18, s: 45, v: 35 },
+      range:  { minH: 10, maxH: 45, minS: 35, maxS: 100, minV: 30, maxV: 100 }
+    },
+    cyan: {
+      center: { h: 185, tol: 22, s: 35, v: 35 },
+      range:  { minH: 165, maxH: 210, minS: 25, maxS: 100, minV: 25, maxV: 100 }
+    }
+  };
+
+  function togglePanel(forceState = null) {
+    isPanelVisible = forceState !== null ? forceState : !isPanelVisible;
+    if (isPanelVisible) {
+      configPanel.classList.remove('hidden');
+      drawCalibrationCanvas();
+    } else {
+      configPanel.classList.add('hidden');
+      isPipetteActive = false;
+      updatePipetteUI();
+    }
+  }
+
+  function updateCornerBtnUI() {
+    cornerBtns.forEach(b => {
+      const idx = parseInt(b.getAttribute('data-corner'));
+      b.classList.toggle('active', idx === activeCornerSelected);
+    });
+  }
+
+  cornerBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeCornerSelected = parseInt(btn.getAttribute('data-corner'));
+      updateCornerBtnUI();
+      drawCalibrationCanvas();
+    });
+  });
+
+  window.addEventListener('keydown', (e) => {
+    // Si la consola está abierta y estamos en la pestaña Calibración, ajustar esquinas con flechas o números 1-4
+    if (isPanelVisible && currentActiveTab === 'tab-calibration' && activeCornerSelected >= 0) {
+      const step = e.shiftKey ? 0.001 : 0.005;
+      let handled = false;
+      if (e.key === 'ArrowLeft') {
+        mapper.nudgeCorner(activeCornerSelected, -step, 0);
+        handled = true;
+      } else if (e.key === 'ArrowRight') {
+        mapper.nudgeCorner(activeCornerSelected, step, 0);
+        handled = true;
+      } else if (e.key === 'ArrowUp') {
+        mapper.nudgeCorner(activeCornerSelected, 0, -step);
+        handled = true;
+      } else if (e.key === 'ArrowDown') {
+        mapper.nudgeCorner(activeCornerSelected, 0, step);
+        handled = true;
+      } else if (e.key >= '1' && e.key <= '4') {
+        activeCornerSelected = parseInt(e.key) - 1;
+        updateCornerBtnUI();
+        handled = true;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        drawCalibrationCanvas();
+        saveSettings();
+        return;
+      }
+    }
+
+    if (e.target.tagName === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
+    const key = e.key.toLowerCase();
+    if (key === 'h') {
+      e.preventDefault();
+      togglePanel();
+      showToast(isPanelVisible ? "Menú abierto (H)" : "Menú oculto (H)");
+    } else if (key === 'f') {
+      e.preventDefault();
+      toggleFullscreen();
+    } else if (key === 'r') {
+      e.preventDefault();
+      physics.clearBalls();
+      showToast("Bolas reiniciadas (R)");
+    } else if (key === ' ') {
+      e.preventDefault();
+      isSimulationPaused = !isSimulationPaused;
+      showToast(isSimulationPaused ? "Pausa" : "Reanudado");
+    }
+  });
+
+  floatingMenuBtn.addEventListener('click', () => togglePanel());
+  closePanelBtn.addEventListener('click', () => togglePanel(false));
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => console.warn(err));
+    } else {
+      document.exitFullscreen().catch(err => console.warn(err));
+    }
+  }
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const tabId = btn.getAttribute('data-tab');
+      currentActiveTab = tabId;
+      document.getElementById(tabId).classList.add('active');
+      if (tabId === 'tab-calibration') drawCalibrationCanvas();
+    });
+  });
+
+  async function loadCameraDevices() {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+      cameraSelect.innerHTML = '';
+      if (videoDevices.length === 0) {
+        cameraSelect.innerHTML = '<option value="">No se encontraron cámaras</option>';
+        return;
+      }
+
+      videoDevices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Cámara ${index + 1}`;
+        cameraSelect.appendChild(option);
+      });
+    } catch (err) {
+      console.warn("Error listando cámaras:", err);
+    }
+  }
+
+  startCameraBtn.addEventListener('click', async () => {
+    audio.init();
+    welcomeOverlay.classList.add('hidden');
+    showToast("Solicitando cámara...");
+    const res = await tracker.startCamera();
+    if (res.success) {
+      await loadCameraDevices();
+      showToast("Cámara conectada. Presiona H para ajustar.", "success");
+    } else {
+      // Manejo específico si se abre como archivo local file://
+      if (location.protocol === 'file:') {
+        showToast("Aviso: Para usar cámara por archivo directo abre con Firefox o Microsoft Edge", "warning");
+      } else {
+        showToast("No se pudo acceder a la cámara. Activando modo Demo.", "warning");
+      }
+      tracker.setDemoMode(true);
+    }
+  });
+
+  demoModeBtn.addEventListener('click', () => {
+    audio.init();
+    welcomeOverlay.classList.add('hidden');
+    tracker.setDemoMode(true);
+    showToast("Modo Demo activado con Post-its interactivos", "success");
+    togglePanel(true);
+  });
+
+  refreshCamerasBtn.addEventListener('click', loadCameraDevices);
+  cameraSelect.addEventListener('change', async () => {
+    if (cameraSelect.value) {
+      showToast("Cambiando de cámara...");
+      await tracker.startCamera(cameraSelect.value);
+    }
+  });
+
+  function updateOpenCVSnippet() {
+    if (!opencvCodePreview) return;
+    const hMin = Math.round(tracker.rangeMinH / 2);
+    const hMax = Math.round(tracker.rangeMaxH / 2);
+    const sMin = Math.round(tracker.rangeMinS * 2.55);
+    const sMax = Math.round(tracker.rangeMaxS * 2.55);
+    const vMin = Math.round(tracker.rangeMinV * 2.55);
+    const vMax = Math.round(tracker.rangeMaxV * 2.55);
+    opencvCodePreview.textContent = `cv2.inRange(hsv, (${hMin}, ${sMin}, ${vMin}), (${hMax}, ${sMax}, ${vMax}))`;
+  }
+
+  function applyRangeSettings(minH, maxH, minS, maxS, minV, maxV) {
+    tracker.rangeMinH = minH;
+    tracker.rangeMaxH = maxH;
+    tracker.rangeMinS = minS;
+    tracker.rangeMaxS = maxS;
+    tracker.rangeMinV = minV;
+    tracker.rangeMaxV = maxV;
+
+    if (rangeMinHueSlider) { rangeMinHueSlider.value = minH; rangeMinHueVal.textContent = `${minH}°`; }
+    if (rangeMaxHueSlider) { rangeMaxHueSlider.value = maxH; rangeMaxHueVal.textContent = `${maxH}°`; }
+    if (rangeMinSatSlider) { rangeMinSatSlider.value = minS; rangeMinSatVal.textContent = `${minS}%`; }
+    if (rangeMaxSatSlider) { rangeMaxSatSlider.value = maxS; rangeMaxSatVal.textContent = `${maxS}%`; }
+    if (rangeMinValSlider) { rangeMinValSlider.value = minV; rangeMinValVal.textContent = `${minV}%`; }
+    if (rangeMaxValSlider) { rangeMaxValSlider.value = maxV; rangeMaxValVal.textContent = `${maxV}%`; }
+
+    updateOpenCVSnippet();
+    saveSettings();
+  }
+
+  colorDetectionModeRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      tracker.colorMode = e.target.value;
+      if (tracker.colorMode === 'range') {
+        if (colorModeCenterControls) colorModeCenterControls.style.display = 'none';
+        if (colorModeRangeControls) colorModeRangeControls.style.display = 'flex';
+        updateOpenCVSnippet();
+        showToast("Modo Rango HSV (OpenCV inRange) activado", "info");
+      } else {
+        if (colorModeCenterControls) colorModeCenterControls.style.display = 'block';
+        if (colorModeRangeControls) colorModeRangeControls.style.display = 'none';
+        showToast("Modo Tono Central (±ΔH) activado", "info");
+      }
+      saveSettings();
+    });
+  });
+
+  if (rangeMinHueSlider) {
+    rangeMinHueSlider.addEventListener('input', (e) => {
+      tracker.rangeMinH = parseInt(e.target.value);
+      rangeMinHueVal.textContent = `${tracker.rangeMinH}°`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+  if (rangeMaxHueSlider) {
+    rangeMaxHueSlider.addEventListener('input', (e) => {
+      tracker.rangeMaxH = parseInt(e.target.value);
+      rangeMaxHueVal.textContent = `${tracker.rangeMaxH}°`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+  if (rangeMinSatSlider) {
+    rangeMinSatSlider.addEventListener('input', (e) => {
+      tracker.rangeMinS = parseInt(e.target.value);
+      rangeMinSatVal.textContent = `${tracker.rangeMinS}%`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+  if (rangeMaxSatSlider) {
+    rangeMaxSatSlider.addEventListener('input', (e) => {
+      tracker.rangeMaxS = parseInt(e.target.value);
+      rangeMaxSatVal.textContent = `${tracker.rangeMaxS}%`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+  if (rangeMinValSlider) {
+    rangeMinValSlider.addEventListener('input', (e) => {
+      tracker.rangeMinV = parseInt(e.target.value);
+      rangeMinValVal.textContent = `${tracker.rangeMinV}%`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+  if (rangeMaxValSlider) {
+    rangeMaxValSlider.addEventListener('input', (e) => {
+      tracker.rangeMaxV = parseInt(e.target.value);
+      rangeMaxValVal.textContent = `${tracker.rangeMaxV}%`;
+      updateOpenCVSnippet();
+      saveSettings();
+    });
+  }
+
+  // Clonar el color o rango de la tarjeta sostenida frente a la cámara
+  if (cloneCardBtn) {
+    cloneCardBtn.addEventListener('click', () => {
+      if (tracker.colorMode === 'range') {
+        const rng = tracker.sampleCenterCardRange();
+        if (rng) {
+          applyRangeSettings(rng.minH, rng.maxH, rng.minS, rng.maxS, rng.minV, rng.maxV);
+          sampledColorValues.textContent = `H:[${rng.minH}°-${rng.maxH}°] S:[${rng.minS}%-${rng.maxS}%]`;
+          showToast(`Rango OpenCV clonado: H[${rng.minH}° - ${rng.maxH}°]`, "success");
+
+          if (cardFocusReticle) {
+            cardFocusReticle.classList.add('active');
+            setTimeout(() => cardFocusReticle.classList.remove('active'), 500);
+          }
+        } else {
+          showToast("Ubica la tarjeta en el centro de la cámara y vuelve a pulsar", "warning");
+        }
+      } else {
+        const sample = tracker.sampleCenterCard();
+        if (sample) {
+          applyColorSettings(sample.hsv.h, tracker.hueTolerance, sample.hsv.s, sample.hsv.v);
+          sampledColorPreview.style.backgroundColor = `rgb(${sample.rgb.r}, ${sample.rgb.g}, ${sample.rgb.b})`;
+          sampledColorValues.textContent = `HSV: ${sample.hsv.h}°, ${sample.hsv.s}%, ${sample.hsv.v}%`;
+          showToast(`Color de tarjeta clonado: Hue ${sample.hsv.h}°`, "success");
+
+          if (cardFocusReticle) {
+            cardFocusReticle.classList.add('active');
+            setTimeout(() => cardFocusReticle.classList.remove('active'), 500);
+          }
+        } else {
+          showToast("Ubica la tarjeta en el centro de la cámara y vuelve a pulsar", "warning");
+        }
+      }
+    });
+  }
+
+  pipetteToolBtn.addEventListener('click', () => {
+    isPipetteActive = !isPipetteActive;
+    updatePipetteUI();
+  });
+
+  function updatePipetteUI() {
+    if (isPipetteActive) {
+      pipetteToolBtn.classList.add('btn-primary');
+      pipetteToolBtn.classList.remove('btn-accent');
+      eyedropperStatus.textContent = "Haz clic en el video";
+      eyedropperStatus.style.background = "rgba(0, 229, 255, 0.25)";
+      pipetteCrosshair.style.display = 'block';
+    } else {
+      pipetteToolBtn.classList.remove('btn-primary');
+      pipetteToolBtn.classList.add('btn-accent');
+      eyedropperStatus.textContent = "Inactivo";
+      eyedropperStatus.style.background = "rgba(255, 255, 255, 0.08)";
+      pipetteCrosshair.style.display = 'none';
+    }
+  }
+
+  cameraFeedCanvas.addEventListener('mousemove', (e) => {
+    if (!isPipetteActive) return;
+    const rect = cameraFeedCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    pipetteCrosshair.style.left = `${x}px`;
+    pipetteCrosshair.style.top = `${y}px`;
+  });
+
+  cameraFeedCanvas.addEventListener('click', (e) => {
+    const rect = cameraFeedCanvas.getBoundingClientRect();
+    const normX = (e.clientX - rect.left) / rect.width;
+    const normY = (e.clientY - rect.top) / rect.height;
+
+    const sample = tracker.sampleColorAt(normX, normY);
+    if (sample) {
+      applyColorSettings(sample.hsv.h, tracker.hueTolerance, sample.hsv.s, sample.hsv.v);
+      applyRangeSettings(tracker.rangeMinH, tracker.rangeMaxH, tracker.rangeMinS, tracker.rangeMaxS, tracker.rangeMinV, tracker.rangeMaxV);
+      sampledColorPreview.style.backgroundColor = `rgb(${sample.rgb.r}, ${sample.rgb.g}, ${sample.rgb.b})`;
+      sampledColorValues.textContent = `HSV: ${sample.hsv.h}°, ${sample.hsv.s}%, ${sample.hsv.v}%`;
+      showToast(`Color clonado: Hue ${sample.hsv.h}°`, "success");
+      isPipetteActive = false;
+      updatePipetteUI();
+    }
+  });
+
+  function applyColorSettings(h, tol, s, v) {
+    tracker.targetHue = h;
+    tracker.hueTolerance = tol;
+    tracker.minSaturation = s;
+    tracker.minValue = v;
+
+    hueSlider.value = h;
+    hueVal.textContent = `${h}°`;
+
+    hueToleranceSlider.value = tol;
+    hueToleranceVal.textContent = `${tol}°`;
+
+    minSatSlider.value = s;
+    minSatVal.textContent = `${s}%`;
+
+    minValSlider.value = v;
+    minValVal.textContent = `${v}%`;
+
+    sampledColorPreview.style.backgroundColor = `hsl(${h}, 90%, 55%)`;
+    saveSettings();
+  }
+
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const presetName = btn.getAttribute('data-preset');
+      const p = postitPresets[presetName];
+      if (p) {
+        if (p.center) applyColorSettings(p.center.h, p.center.tol, p.center.s, p.center.v);
+        else applyColorSettings(p.h, p.tol, p.s, p.v);
+
+        if (p.range) {
+          applyRangeSettings(p.range.minH, p.range.maxH, p.range.minS, p.range.maxS, p.range.minV, p.range.maxV);
+        }
+        showToast(`Preset: ${btn.textContent.trim()}`);
+      }
+    });
+  });
+
+  hueSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.targetHue = val;
+    hueVal.textContent = `${val}°`;
+    sampledColorPreview.style.backgroundColor = `hsl(${val}, 90%, 55%)`;
+    saveSettings();
+  });
+
+  hueToleranceSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.hueTolerance = val;
+    hueToleranceVal.textContent = `${val}°`;
+    saveSettings();
+  });
+
+  minSatSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.minSaturation = val;
+    minSatVal.textContent = `${val}%`;
+    saveSettings();
+  });
+
+  minValSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.minValue = val;
+    minValVal.textContent = `${val}%`;
+    saveSettings();
+  });
+
+  minAreaSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.minArea = val;
+    minAreaVal.textContent = `${val} px`;
+  });
+
+  maxAreaSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.maxArea = val;
+    maxAreaVal.textContent = `${Math.round(val / 1000)}k px`;
+  });
+
+  sizeOffsetSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.sizeOffset = val / 100;
+    sizeOffsetVal.textContent = (val > 0 ? `+${val}%` : `${val}%`);
+  });
+
+  smoothingSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    tracker.smoothingFactor = val / 100;
+    smoothingVal.textContent = `${val}%`;
+  });
+
+  showMaskToggle.addEventListener('change', (e) => {
+    tracker.showMask = e.target.checked;
+  });
+
+  const calCtx = calibrationCanvas.getContext('2d');
+
+  function drawCalibrationCanvas() {
+    const w = calibrationCanvas.width;
+    const h = calibrationCanvas.height;
+
+    calCtx.fillStyle = '#060a12';
+    calCtx.fillRect(0, 0, w, h);
+
+    if (tracker.isStreaming && tracker.video.readyState >= 2) {
+      calCtx.globalAlpha = 0.90; // Imagen nítida para que el usuario distinga perfectamente la pared
+      calCtx.drawImage(tracker.procCanvas, 0, 0, w, h);
+      calCtx.globalAlpha = 1.0;
+    }
+
+    const corners = mapper.srcCorners.map(c => ({
+      x: c.x * w,
+      y: c.y * h
+    }));
+
+    calCtx.strokeStyle = '#00e5ff';
+    calCtx.lineWidth = 2;
+    calCtx.fillStyle = 'rgba(0, 229, 255, 0.12)';
+
+    calCtx.beginPath();
+    calCtx.moveTo(corners[0].x, corners[0].y);
+    calCtx.lineTo(corners[1].x, corners[1].y);
+    calCtx.lineTo(corners[2].x, corners[2].y);
+    calCtx.lineTo(corners[3].x, corners[3].y);
+    calCtx.closePath();
+    calCtx.fill();
+    calCtx.stroke();
+
+    calCtx.strokeStyle = 'rgba(0, 229, 255, 0.35)';
+    calCtx.setLineDash([3, 3]);
+
+    const midTop = { x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2 };
+    const midBot = { x: (corners[3].x + corners[2].x) / 2, y: (corners[3].y + corners[2].y) / 2 };
+    const midLeft = { x: (corners[0].x + corners[3].x) / 2, y: (corners[0].y + corners[3].y) / 2 };
+    const midRight = { x: (corners[1].x + corners[2].x) / 2, y: (corners[1].y + corners[2].y) / 2 };
+
+    calCtx.beginPath();
+    calCtx.moveTo(midTop.x, midTop.y);
+    calCtx.lineTo(midBot.x, midBot.y);
+    calCtx.moveTo(midLeft.x, midLeft.y);
+    calCtx.lineTo(midRight.x, midRight.y);
+    calCtx.stroke();
+    calCtx.setLineDash([]);
+
+    corners.forEach((c, idx) => {
+      const isSelected = (activeCornerDrag === idx || activeCornerSelected === idx);
+      calCtx.fillStyle = isSelected ? '#ff007f' : '#00e5ff';
+      calCtx.shadowColor = isSelected ? '#ff007f' : '#00e5ff';
+      calCtx.shadowBlur = isSelected ? 14 : 6;
+      calCtx.beginPath();
+      calCtx.arc(c.x, c.y, isSelected ? 10 : 7, 0, Math.PI * 2);
+      calCtx.fill();
+      calCtx.shadowBlur = 0;
+
+      calCtx.fillStyle = '#ffffff';
+      calCtx.font = 'bold 10px sans-serif';
+      calCtx.textAlign = 'center';
+      calCtx.textBaseline = 'middle';
+      calCtx.fillText(idx + 1, c.x, c.y);
+    });
+  }
+
+  calibrationCanvas.addEventListener('mousedown', (e) => {
+    const rect = calibrationCanvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+
+    let closestIdx = -1;
+    let minDist = 0.08;
+
+    mapper.srcCorners.forEach((c, i) => {
+      const dist = Math.hypot(c.x - mx, c.y - my);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = i;
+      }
+    });
+
+    if (closestIdx !== -1) {
+      activeCornerDrag = closestIdx;
+      activeCornerSelected = closestIdx;
+      updateCornerBtnUI();
+      drawCalibrationCanvas();
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (activeCornerDrag !== -1) {
+      const rect = calibrationCanvas.getBoundingClientRect();
+      const normX = (e.clientX - rect.left) / rect.width;
+      const normY = (e.clientY - rect.top) / rect.height;
+      mapper.setCorner(activeCornerDrag, normX, normY);
+      drawCalibrationCanvas();
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (activeCornerDrag !== -1) {
+      activeCornerDrag = -1;
+      drawCalibrationCanvas();
+      saveSettings();
+    }
+  });
+
+  resetCalibrationBtn.addEventListener('click', () => {
+    mapper.resetCorners();
+    drawCalibrationCanvas();
+    saveSettings();
+    showToast("Esquinas restablecidas");
+  });
+
+  toggleTestPatternBtn.addEventListener('click', () => {
+    isTestPatternActive = !isTestPatternActive;
+    toggleTestPatternBtn.classList.toggle('btn-primary', isTestPatternActive);
+    toggleTestPatternBtn.classList.toggle('btn-accent', !isTestPatternActive);
+    showToast(isTestPatternActive ? "Patrón de calibración activo" : "Patrón desactivado");
+  });
+
+  if (offsetXSlider) {
+    offsetXSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value) / 100;
+      tracker.manualOffsetX = val;
+      offsetXVal.textContent = (val > 0 ? `+${Math.round(val * 100)}%` : `${Math.round(val * 100)}%`);
+      saveSettings();
+    });
+  }
+
+  if (offsetYSlider) {
+    offsetYSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value) / 100;
+      tracker.manualOffsetY = val;
+      offsetYVal.textContent = (val > 0 ? `+${Math.round(val * 100)}%` : `${Math.round(val * 100)}%`);
+      saveSettings();
+    });
+  }
+
+  if (scaleXSlider) {
+    scaleXSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value) / 100;
+      tracker.manualScaleX = val;
+      scaleXVal.textContent = `${Math.round(val * 100)}%`;
+      saveSettings();
+    });
+  }
+
+  if (scaleYSlider) {
+    scaleYSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value) / 100;
+      tracker.manualScaleY = val;
+      scaleYVal.textContent = `${Math.round(val * 100)}%`;
+      saveSettings();
+    });
+  }
+
+  if (resetOffsetsBtn) {
+    resetOffsetsBtn.addEventListener('click', () => {
+      tracker.manualOffsetX = 0;
+      tracker.manualOffsetY = 0;
+      tracker.manualScaleX = 1.0;
+      tracker.manualScaleY = 1.0;
+      if (offsetXSlider) offsetXSlider.value = 0;
+      if (offsetXVal) offsetXVal.textContent = '0%';
+      if (offsetYSlider) offsetYSlider.value = 0;
+      if (offsetYVal) offsetYVal.textContent = '0%';
+      if (scaleXSlider) scaleXSlider.value = 100;
+      if (scaleXVal) scaleXVal.textContent = '100%';
+      if (scaleYSlider) scaleYSlider.value = 100;
+      if (scaleYVal) scaleYVal.textContent = '100%';
+      saveSettings();
+      showToast("Compensaciones restablecidas");
+    });
+  }
+
+  if (liveCameraWallToggle) {
+    liveCameraWallToggle.addEventListener('change', (e) => {
+      physics.debugMode = e.target.checked;
+    });
+  }
+
+  flipCameraXToggle.addEventListener('change', (e) => {
+    tracker.flipX = e.target.checked;
+    saveSettings();
+  });
+
+  flipCameraYToggle.addEventListener('change', (e) => {
+    tracker.flipY = e.target.checked;
+    saveSettings();
+  });
+
+  spawnRateSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    physics.spawnRate = val;
+    spawnRateVal.textContent = `${val} /s`;
+  });
+
+  gravitySlider.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    physics.gravity = val;
+    gravityVal.textContent = val.toFixed(2);
+  });
+
+  bouncinessSlider.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    physics.bounciness = val;
+    bouncinessVal.textContent = val.toFixed(2);
+  });
+
+  ballRadiusSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    physics.ballRadius = val;
+    ballRadiusVal.textContent = `${val} px`;
+  });
+
+  maxBallsSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    physics.maxBalls = val;
+    maxBallsVal.textContent = val;
+  });
+
+  ballStyleSelect.addEventListener('change', (e) => {
+    physics.ballStyle = e.target.value;
+  });
+
+  spawnerModeSelect.addEventListener('change', (e) => {
+    physics.spawnerMode = e.target.value;
+  });
+
+  clearBallsBtn.addEventListener('click', () => {
+    physics.clearBalls();
+    showToast("Bolas eliminadas");
+  });
+
+  burstBallsBtn.addEventListener('click', () => {
+    physics.burst(30);
+    showToast("Ráfaga generada", "success");
+  });
+
+  splatterToggle.addEventListener('change', (e) => {
+    physics.enableSplatter = e.target.checked;
+  });
+
+  highlightStickersToggle.addEventListener('change', (e) => {
+    physics.highlightStickers = e.target.checked;
+  });
+
+  if (trailLengthSlider) {
+    trailLengthSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      physics.trailAlpha = val;
+      if (trailLengthVal) trailLengthVal.textContent = val.toFixed(2);
+    });
+  }
+
+  document.querySelectorAll('input[name="screenMode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      physics.debugMode = (e.target.value === 'debug');
+    });
+  });
+
+  audioEnabledToggle.addEventListener('change', (e) => {
+    audio.enabled = e.target.checked;
+    if (audio.enabled) audio.init();
+  });
+
+  audioVolumeSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    audio.setVolume(val / 100);
+    audioVolumeVal.textContent = `${val}%`;
+  });
+
+  audioScaleSelect.addEventListener('change', (e) => {
+    audio.style = e.target.value;
+  });
+
+  projectionCanvas.addEventListener('click', (e) => {
+    audio.init();
+    if (tracker.demoMode) {
+      const normX = e.clientX / window.innerWidth;
+      const normY = e.clientY / window.innerHeight;
+      tracker.addVirtualObstacle(normX, normY);
+      showToast("Post-it virtual añadido");
+    } else {
+      physics.spawnBall(e.clientX, e.clientY, (Math.random() - 0.5) * 5, -2);
+    }
+  });
+
+  function drawTestPattern(ctx, w, h) {
+    ctx.save();
+    // Borde perimétrico de alto contraste
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, w, h);
+
+    // Ejes centrales
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+    ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    // Círculos concéntricos de referencia de centrado
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, Math.min(w, h) * 0.25, 0, Math.PI * 2);
+    ctx.arc(w / 2, h / 2, Math.min(w, h) * 0.45, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Dianas y marcas angulares en las 4 esquinas exactas (para saber dónde debe ir cada punto 1, 2, 3, 4)
+    const targetSize = 45;
+    ctx.strokeRect(0, 0, targetSize, targetSize);
+    ctx.strokeRect(w - targetSize, 0, targetSize, targetSize);
+    ctx.strokeRect(w - targetSize, h - targetSize, targetSize, targetSize);
+    ctx.strokeRect(0, h - targetSize, targetSize, targetSize);
+
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = '#00e5ff';
+    ctx.textAlign = 'left';
+    ctx.fillText("1: SUP-IZQ", 15, 30);
+    ctx.textAlign = 'right';
+    ctx.fillText("2: SUP-DER", w - 15, 30);
+    ctx.textAlign = 'right';
+    ctx.fillText("3: INF-DER", w - 15, h - 20);
+    ctx.textAlign = 'left';
+    ctx.fillText("4: INF-IZQ", 15, h - 20);
+
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText("PATRÓN DE CALIBRACIÓN ÓPTICA - ALINEACIÓN DE 4 ESQUINAS", w / 2, h / 2 - 40);
+    ctx.font = '14px monospace';
+    ctx.fillText("Alinea los puntos 1, 2, 3 y 4 con las 4 dianas en las esquinas proyectadas", w / 2, h / 2 + 50);
+    ctx.restore();
+  }
+
+  function mainLoop(timestamp) {
+    const detectedObstacles = tracker.processFrame();
+
+    // Telemetría en vivo del color enfocado de la tarjeta
+    if (isPanelVisible && tracker.isStreaming && tracker.currentCenterSample && liveCardSwatch && liveCardHsv) {
+      const s = tracker.currentCenterSample;
+      liveCardSwatch.style.backgroundColor = `rgb(${s.rgb.r}, ${s.rgb.g}, ${s.rgb.b})`;
+      liveCardHsv.textContent = `H:${s.hsv.h}° S:${s.hsv.s}% V:${s.hsv.v}%`;
+    }
+
+    if (isTestPatternActive) {
+      physics.ctx.fillStyle = '#000000';
+      physics.ctx.fillRect(0, 0, physics.width, physics.height);
+      drawTestPattern(physics.ctx, physics.width, physics.height);
+    } else if (!isSimulationPaused) {
+      if (physics.debugMode && tracker.isStreaming) {
+        physics.ctx.save();
+        physics.ctx.globalAlpha = 0.40;
+        physics.ctx.drawImage(tracker.procCanvas, 0, 0, physics.width, physics.height);
+        physics.ctx.restore();
+      }
+      physics.update(detectedObstacles, timestamp);
+    }
+    requestAnimationFrame(mainLoop);
+  }
+
+  requestAnimationFrame(mainLoop);
+
+  function saveSettings() {
+    try {
+      const data = {
+        colorMode: tracker.colorMode,
+        hue: tracker.targetHue,
+        tol: tracker.hueTolerance,
+        sat: tracker.minSaturation,
+        val: tracker.minValue,
+        rangeMinH: tracker.rangeMinH,
+        rangeMaxH: tracker.rangeMaxH,
+        rangeMinS: tracker.rangeMinS,
+        rangeMaxS: tracker.rangeMaxS,
+        rangeMinV: tracker.rangeMinV,
+        rangeMaxV: tracker.rangeMaxV,
+        minArea: tracker.minArea,
+        corners: mapper.srcCorners,
+        flipX: tracker.flipX,
+        flipY: tracker.flipY,
+        offsetX: tracker.manualOffsetX,
+        offsetY: tracker.manualOffsetY,
+        scaleX: tracker.manualScaleX,
+        scaleY: tracker.manualScaleY,
+        sizeOffset: tracker.sizeOffset,
+        highlightStickers: physics.highlightStickers
+      };
+      localStorage.setItem('interactive_projection_config', JSON.stringify(data));
+    } catch (e) {}
+  }
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem('interactive_projection_config');
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.corners) {
+          mapper.srcCorners = d.corners;
+          mapper.computeHomography();
+        }
+        if (d.hue !== undefined) {
+          applyColorSettings(d.hue, d.tol || 24, d.sat || 30, d.val || 25);
+        }
+        if (d.rangeMinH !== undefined) {
+          tracker.rangeMinH = d.rangeMinH;
+          tracker.rangeMaxH = d.rangeMaxH || 82;
+          tracker.rangeMinS = d.rangeMinS || 25;
+          tracker.rangeMaxS = d.rangeMaxS || 100;
+          tracker.rangeMinV = d.rangeMinV || 25;
+          tracker.rangeMaxV = d.rangeMaxV || 100;
+
+          if (rangeMinHueSlider) { rangeMinHueSlider.value = tracker.rangeMinH; rangeMinHueVal.textContent = `${tracker.rangeMinH}°`; }
+          if (rangeMaxHueSlider) { rangeMaxHueSlider.value = tracker.rangeMaxH; rangeMaxHueVal.textContent = `${tracker.rangeMaxH}°`; }
+          if (rangeMinSatSlider) { rangeMinSatSlider.value = tracker.rangeMinS; rangeMinSatVal.textContent = `${tracker.rangeMinS}%`; }
+          if (rangeMaxSatSlider) { rangeMaxSatSlider.value = tracker.rangeMaxS; rangeMaxSatVal.textContent = `${tracker.rangeMaxS}%`; }
+          if (rangeMinValSlider) { rangeMinValSlider.value = tracker.rangeMinV; rangeMinValVal.textContent = `${tracker.rangeMinV}%`; }
+          if (rangeMaxValSlider) { rangeMaxValSlider.value = tracker.rangeMaxV; rangeMaxValVal.textContent = `${tracker.rangeMaxV}%`; }
+          updateOpenCVSnippet();
+        }
+        if (d.colorMode !== undefined) {
+          tracker.colorMode = d.colorMode;
+          colorDetectionModeRadios.forEach(r => {
+            r.checked = (r.value === d.colorMode);
+          });
+          if (d.colorMode === 'range') {
+            if (colorModeCenterControls) colorModeCenterControls.style.display = 'none';
+            if (colorModeRangeControls) colorModeRangeControls.style.display = 'flex';
+          } else {
+            if (colorModeCenterControls) colorModeCenterControls.style.display = 'block';
+            if (colorModeRangeControls) colorModeRangeControls.style.display = 'none';
+          }
+        }
+        if (d.minArea !== undefined && minAreaSlider) {
+          tracker.minArea = d.minArea;
+          minAreaSlider.value = d.minArea;
+          minAreaVal.textContent = `${d.minArea} px`;
+        }
+        if (d.flipX !== undefined) {
+          tracker.flipX = d.flipX;
+          flipCameraXToggle.checked = d.flipX;
+        }
+        if (d.flipY !== undefined) {
+          tracker.flipY = d.flipY;
+          flipCameraYToggle.checked = d.flipY;
+        }
+        if (d.offsetX !== undefined && offsetXSlider) {
+          tracker.manualOffsetX = d.offsetX;
+          offsetXSlider.value = Math.round(d.offsetX * 100);
+          offsetXVal.textContent = (d.offsetX > 0 ? `+${Math.round(d.offsetX * 100)}%` : `${Math.round(d.offsetX * 100)}%`);
+        }
+        if (d.offsetY !== undefined && offsetYSlider) {
+          tracker.manualOffsetY = d.offsetY;
+          offsetYSlider.value = Math.round(d.offsetY * 100);
+          offsetYVal.textContent = (d.offsetY > 0 ? `+${Math.round(d.offsetY * 100)}%` : `${Math.round(d.offsetY * 100)}%`);
+        }
+        if (d.scaleX !== undefined && scaleXSlider) {
+          tracker.manualScaleX = d.scaleX;
+          scaleXSlider.value = Math.round(d.scaleX * 100);
+          scaleXVal.textContent = `${Math.round(d.scaleX * 100)}%`;
+        }
+        if (d.scaleY !== undefined && scaleYSlider) {
+          tracker.manualScaleY = d.scaleY;
+          scaleYSlider.value = Math.round(d.scaleY * 100);
+          scaleYVal.textContent = `${Math.round(d.scaleY * 100)}%`;
+        }
+        if (d.highlightStickers !== undefined && highlightStickersToggle) {
+          physics.highlightStickers = d.highlightStickers;
+          highlightStickersToggle.checked = d.highlightStickers;
+        }
+        if (d.sizeOffset !== undefined && sizeOffsetSlider) {
+          tracker.sizeOffset = d.sizeOffset;
+          sizeOffsetSlider.value = Math.round(d.sizeOffset * 100);
+          sizeOffsetVal.textContent = (d.sizeOffset > 0 ? `+${Math.round(d.sizeOffset * 100)}%` : `${Math.round(d.sizeOffset * 100)}%`);
+        }
+      }
+    } catch (e) {}
+  }
+
+  loadSettings();
+
+  function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, 3200);
+  }
+});
+  </script>
+  <script src="cambios/pc/deteccion-colores.js"></script>
+  <script src="cambios/pc/puente-celular.js"></script>
+  <script src="cambios/pc/subir-foto.js"></script>
+  <script src="cambios/pc/pintar-colores.js"></script>
+</body>
+</html>
