@@ -9,6 +9,9 @@
       Así la detección de color, la física y la calibración no se tocan.
    5. Manda los marcos verdes al celular.
    6. Presta el lienzo a subir-foto.js (window.PuenteCamara) para usar una foto como cámara.
+   7. Si el celular deja de mandar imagen, borra la última foto (así no quedan
+      Post-its «fantasma») y avisa «Sin imagen del celular». Si la cámara de la
+      PC se apaga o se desconecta, también se borran los Post-its y se avisa.
 */
 (function () {
   'use strict';
@@ -95,8 +98,22 @@
   const processFrameAnterior = ColorTracker.prototype.processFrame;
   ColorTracker.prototype.processFrame = function () {
     trackerApp = this;
+    // Cámara de la PC apagada o desconectada: sin imagen no hay Post-its.
+    // Antes la app se quedaba con los recuadros del último cuadro que vio.
+    const pista = this.stream && this.stream.getVideoTracks ? this.stream.getVideoTracks()[0] : null;
+    const sinVideo = !this.demoMode && !fotoPuesta && (!this.isStreaming || !pista || pista.readyState === 'ended');
+    if (sinVideo) {
+      if (this.obstacles && this.obstacles.length) this.obstacles = [];
+      if (this.isStreaming && !camaraPcApagada) {
+        camaraPcApagada = true;
+        mostrarAviso('Sin imagen de la cámara. Revisa que esté prendida y conectada.', false);
+      }
+      return this.obstacles || [];
+    }
+    if (camaraPcApagada) { camaraPcApagada = false; ocultarAviso(); }
     return processFrameAnterior.call(this);
   };
+  let camaraPcApagada = false;
 
   /* ---------- 6. Foto subida como cámara (lo usa subir-foto.js) ----------
      La foto se dibuja en el mismo lienzo que el celular. Mientras está puesta,
@@ -365,6 +382,7 @@
         celularConectado = false;
         estadoVentana('● Esperando celular…');
         celularListo(false); // sin celular, el botón de iniciar se esconde
+        borrarImagen(false);  // el aviso de abajo ya explica qué pasó
         if (usarCelular) mostrarAviso('Celular desconectado. Vuelve a abrir el link en el celular o escanea el QR de nuevo.', true);
       }
     };
@@ -415,7 +433,27 @@
       }
     }
     actualizarPrevia();
+    horaUltimaFoto = performance.now();
+    if (sinImagen) { sinImagen = false; ocultarAviso(); }
   }
+
+  /* ---------- 7. Sin imagen del celular ----------
+     Si se toca «Detener», se bloquea el celular o se corta internet, dejan de
+     llegar fotos y el lienzo se quedaba con la última: la app seguía viendo
+     esos Post-its. Ahora, a los 1,5 s sin fotos, el lienzo se pone negro.     */
+  const ESPERA_SIN_FOTO = 1500; // milisegundos
+  let horaUltimaFoto = 0;
+  let sinImagen = false;
+  function borrarImagen(conAviso) {
+    if (fotoPuesta) return; // una foto subida se queda fija a propósito
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, lienzo.width, lienzo.height);
+    sinImagen = true;
+    if (conAviso && usarCelular) mostrarAviso('Sin imagen del celular', false);
+  }
+  setInterval(() => {
+    if (!usarCelular || fotoPuesta || sinImagen || !horaUltimaFoto) return;
+    if (performance.now() - horaUltimaFoto > ESPERA_SIN_FOTO) borrarImagen(true);
+  }, 500);
 
   // Aviso «El celular giró»: se va solo a los 8 segundos
   let yaHuboFoto = false;

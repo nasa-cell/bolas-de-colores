@@ -161,5 +161,7 @@ Arriba dice cuántos ve, por ejemplo «3 Post-its».
 | El QR no se dibuja | La librería del QR se baja de internet. Sin internet, escribe en el celular el link que sale debajo. |
 | El celular dice «Este código ya no sirve» | La app de la PC se recargó y el código cambió. Escanea el QR nuevo. |
 | Va lento | En el celular elige «Calidad: 480p». |
+| «Sin imagen del celular» | El celular dejó de mandar imagen (se tocó «Detener», se bloqueó o se cortó internet). Los Post-its se borran para que no queden recuadros fantasma. Al volver la imagen, el aviso se va solo. |
+| «Sin imagen de la cámara» | La cámara de la PC se apagó o se desconectó. Prenderla y elegirla de nuevo en la consola (tecla H). |
 
 Requisitos: Node.js instalado (gratis, https://nodejs.org) e internet en la PC.
