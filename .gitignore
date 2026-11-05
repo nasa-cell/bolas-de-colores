@@ -1,2 +1,5 @@
 # Programa del túnel (53 MB): se descarga gratis, ver cambios/LEEME.md
 cambios/herramientas/*.exe
+
+# Mapa del proyecto (graphify): solo para esta PC
+graphify-out/
