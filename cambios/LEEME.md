@@ -199,6 +199,36 @@ Si la app no ve un Post-it (color raro, o la luz del salón lo cambia), se le en
   o uno por uno tocando su ✕. Como máximo 9 enseñados.
 - Solo funciona en «Varios colores a la vez». Desde la consola del navegador: `EnsenarPostit.tocar(x, y)`.
 
+## La app se prueba sola (`pc/auto-ajuste.js`, bloque 7b)
+
+Solo con **«Ajuste automático» prendido**. En modo manual no hace nada.
+
+Cuando aparece un Post-it nuevo, cuando se toca uno («Enseñar Post-it») o cuando la cámara se movió,
+la app revisa sola que su recuadro caiga justo encima del papel, para que las bolas caigan donde está:
+
+- **Con proyector:** proyecta un borde blanco fino un poco más grande que el recuadro, en 2 destellos
+  cortos. La cámara mira dónde cayó ese borde y lo compara con el papel. Si quedó corrido, mueve el
+  recuadro y vuelve a probar. Solo cuenta lo que se prendió en los 2 destellos, así las bolas que caen
+  no confunden la medida.
+- **Sin proyector:** no hay destello. Busca los bordes del papel en la imagen y los compara con el recuadro.
+- Hasta **3 intentos**. Si no lo logra, sale abajo un aviso blanco:
+  «No pude ajustar el Post-it naranja, tócalo otra vez».
+
+En la consola del navegador: `AutoAjuste.revisarTodos()` revisa todos de nuevo y
+`AutoAjuste.revisiones()` muestra cómo le fue a cada uno.
+
+## Detección más pareja (2026-11-06)
+
+Se probó con una simulación hecha con fotos reales y con escenas nuevas (pizarra, ladrillo, corcho, cartel…):
+
+- **Brillo automático:** antes subía hasta ×1,8 y los Post-its claros salían blancos (de frente veía 2 de 5).
+  Ahora sube solo hasta que lo más claro de la imagen queda cerca de 225, sin quemar.
+- **Tono en el límite:** un Post-it amarillo dorado (entre amarillo y naranja) salía partido.
+  Ahora se juntan las partes con tono parecido (menos de 10°).
+- **Cámara cerca:** un Post-it que ocupa más de 5 % de la imagen se acepta si hay otros 2 de tamaño parecido
+  (una cara sola no pasa).
+- **Sin proyector:** las bolas ya no tapan los Post-its nuevos (la cámara no ve las bolas).
+
 ## Marco verde en el celular
 
 Cuando la PC detecta un Post-it, el celular dibuja un **marco verde** encima en su pantalla, en vivo.

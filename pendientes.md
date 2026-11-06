@@ -34,3 +34,22 @@
 - [ ] 19. Modelo que aprende «es Post-it / no es»: según cómo vaya la prueba
 - [x] 21. «Con proyector»: solo 3 intentos y para; «Ajustar ahora», «Con proyector» o cambiar de cámara dan 3 nuevos
 - [x] 22. Tras 3 intentos fallidos se apaga solo «Ajuste automático»; prenderlo (o «Con proyector» en el celular) da 3 intentos nuevos
+
+## Simulación con fotos reales (2026-11-06)
+
+Pruebas en `C:\herramientas\pw\pruebas-posits` (simulacion.js = fotos del usuario, simulacion-nueva.js = grupo A inventado,
+simulacion-final.js = grupo B nunca visto). Videos: simulacion-antes.mp4 y video-prueba-final.mp4.
+
+- [x] Simulación en vivo con las 2 fotos, grabada
+- [x] 24. Brillo automático: sube hasta que lo más claro quede en 225 (máx. ×2,2); antes quemaba los Post-its
+- [x] 26. Amarillo dorado partido entre dos colores: se juntan celdas con tono a menos de 10°
+- [x] Post-it grande con la cámara cerca (más de 5 %): se acepta si hay 2 más de tamaño parecido (una cara sola no)
+- [x] Sin proyector no se tapan las zonas de las bolas
+- [x] 27. Medida «tapa justo %»: 80–97 % en las escenas buenas
+- [x] Pruebas viejas: dan igual que antes (las fallas de «sin proyector automático» y «código de sala» ya fallaban antes)
+- [x] 23. Grupo B nunca visto: 6 de 10 perfectas (antes de los arreglos el grupo A daba 3 de 10)
+- [ ] 25. Falsos con papel tapiz a rayas + luz cálida (10 falsos) y 1 falso en «escritorio con sombra»
+- [ ] Post-its quemados a blanco por exceso de luz: límite de la cámara (sin color no se pueden ver)
+- [x] 28. La app se prueba sola (opción A, solo con «Ajuste automático»): borde blanco en 2 destellos, hasta 3 intentos, aviso blanco si no logra; recuerda la corrección si el Post-it se pierde un momento. Prueba: recuadros corridos 8 % quedan en 1–2 % (PC y celular 350 ms, 3 de 3 corridas)
+- [ ] 29. Instalar Equalizer APO para subir el volumen del PC (cuando el usuario esté en el PC: pide marcar parlantes y reiniciar)
+- [ ] Subir a GitHub/Render solo si el usuario lo autoriza

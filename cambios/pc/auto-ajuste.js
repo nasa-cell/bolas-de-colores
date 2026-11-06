@@ -426,11 +426,20 @@
   const ESPERA_QUITAR = 700;     // ms sin verlo para quitarlo
   const TAPADO_MAX = 30000;      // si alguien lo tapa, se guarda hasta 30 s
   const AREA_MAX = 0.05;         // más de 5 % de la pantalla no es un Post-it (ropa, cartel)
+  const AREA_MAX_CERCA = 0.12;   // con la cámara cerca: hasta 12 % si hay otros Post-its del mismo tamaño
   let pistas = [];
   let confirmarYa = 0;
   let previaMov = null, movimiento = null;
 
-  function reiniciarSeguimiento() { pistas = []; confirmarYa = ahora() + 1200; previaMov = null; }
+  function reiniciarSeguimiento() { pistas = []; confirmarYa = ahora() + 1200; previaMov = null; correccionesVistas = []; }
+  // Correcciones que ya salieron bien, por lugar: si un Post-it se pierde un momento (lo tapa
+  // una bola o una mano) y vuelve, arranca con la misma corrección en vez de quedar corrido.
+  let correccionesVistas = [];
+  function correccionCerca(d) {
+    const cx = d.x + d.width / 2, cy = d.y + d.height / 2;
+    const c = correccionesVistas.find(o => Math.abs(o.x - cx) < d.width && Math.abs(o.y - cy) < d.height);
+    return c ? Object.assign({}, c.corr) : null;
+  }
 
   // Qué partes de la imagen se movieron desde el cuadro anterior (persona, brazo)
   function medirMovimiento() {
@@ -557,7 +566,15 @@
     aprenderMedida(nuevas, fisica ? fisica.width : window.innerWidth, fisica ? fisica.height : window.innerHeight);
     nuevas.forEach(d => { dets.push(...partir(d)); });
     // Muy grande para ser un Post-it (cara, ropa, cartel): fuera
-    dets = dets.filter(d => d.width * d.height <= AREA_MAX && (!medida || d.width * d.height <= medida.w * medida.h * 2.2));
+    // Más de 5 % (cámara cerca) solo si hay al menos 2 Post-its más de tamaño parecido:
+    // una cara o una camisa sola no pasa.
+    const parecidos = d => dets.filter(o => o !== d && o.width * o.height > d.width * d.height * 0.5 &&
+      o.width * o.height < d.width * d.height * 2).length;
+    dets = dets.filter(d => {
+      const area = d.width * d.height;
+      if (medida && area > medida.w * medida.h * 2.2) return false;
+      return area <= AREA_MAX || (area <= AREA_MAX_CERCA && parecidos(d) >= 2);
+    });
     // Sin proyector el Post-it se sostiene con la mano: los dedos tienen color de Post-it naranja.
     // Un recuadro mucho más chico que toca a otro Post-it es la mano, no un Post-it.
     if (sinProyector) {
@@ -588,7 +605,7 @@
           // todavía se está moviendo (lo están pegando). En la mano tiembla un poco: se tolera más.
           if (dist > (sinProyector ? 0.06 : 0.02) || seMueve) mejor.desde = t;
           Object.assign(mejor, { x: d.x, y: d.y, width: d.width, height: d.height, corners: d.corners, color: d.color });
-          if (t - mejor.desde >= ESPERA_APARECER || t < confirmarYa) mejor.confirmado = true;
+          if (t - mejor.desde >= ESPERA_APARECER || t < confirmarYa) { mejor.confirmado = true; mejor.revisar = true; }
         } else if (!sinProyector && d.width * d.height < mejor.width * mejor.height * 0.7 && !d.partida) {
           // Se ve más chico y no es porque se separaron: lo están tapando en parte. Se deja como estaba.
           continue;
@@ -603,7 +620,7 @@
         }
       } else if (!seMueve || sinProyector) {
         pistas.push({ x: d.x, y: d.y, width: d.width, height: d.height, corners: d.corners, color: d.color,
-          desde: t, ultimaVez: t, confirmado: t < confirmarYa, visto: true, tapadoDesde: 0, anillo: brilloAlrededor(d) });
+          desde: t, ultimaVez: t, confirmado: t < confirmarYa, revisar: true, corr: correccionCerca(d), visto: true, tapadoDesde: 0, anillo: brilloAlrededor(d) });
       }
     }
 
@@ -631,8 +648,8 @@
     pistas = pistas.filter((p, i) => !pistas.some((o, j) => j !== i && o.confirmado && p.confirmado &&
       solape(p, o) > 0.5 && (o.width * o.height < p.width * p.height || (o.width * o.height === p.width * p.height && j > i))));
 
-    return pistas.filter(p => p.confirmado).map(p => ({
-      x: p.x, y: p.y, width: p.width, height: p.height, corners: p.corners, color: p.color, lifetime: 1, missCount: 0
+    return pistas.filter(p => p.confirmado).map(p => Object.assign(conCorreccion(p), {
+      corners: p.corners, color: p.color, lifetime: 1, missCount: 0
     }));
   }
 
@@ -674,7 +691,9 @@
     const cols = Math.floor(t.procWidth / 3), filas = Math.floor(t.procHeight / 3);
     if (!tapa || tapa.length !== cols * filas) tapa = new Uint8Array(cols * filas); else tapa.fill(0);
     window.autoAjusteTapa = tapa;
-    if (!fisica || !inv || !fisica.balls) return;
+    // Sin proyector la cámara no ve las bolas (están solo en la pantalla): no hay nada que tapar.
+    // Si se tapara, las bolas amontonadas sobre un Post-it nuevo no dejarían verlo.
+    if (sinProyector || !fisica || !inv || !fisica.balls) return;
     const W = fisica.width, H = fisica.height;
     const todas = fisica.balls;
     for (const b of todas) {
@@ -698,6 +717,288 @@
       const y0 = Math.max(0, Math.floor(Math.min(...q.map(e => e.y)) * filas)), y1 = Math.min(filas - 1, Math.ceil(Math.max(...q.map(e => e.y)) * filas));
       for (let y = y0; y <= y1; y++) tapa.fill(0, y * cols + x0, y * cols + x1 + 1);
     }
+  }
+
+
+  /* ---------- 7b. Se prueba sola ----------
+     Cuando aparece un Post-it nuevo, cuando se toca uno («Enseñar») o cuando la cámara
+     se movió (todos vuelven a aparecer), la app revisa que su recuadro caiga justo encima:
+      - Con proyector: proyecta un borde blanco fino sobre el recuadro (2 destellos cortos), la cámara
+        mira dónde cayó ese borde y lo compara con el papel. Si está corrido, lo mueve.
+      - Sin proyector: busca los bordes del papel en la imagen y los compara con el recuadro.
+     Hasta 3 intentos; si no lo logra, aviso abajo para que lo toquen otra vez.
+     La corrección se guarda en cada Post-it como bordes de más o de menos (en proporción
+     de su tamaño), así sigue valiendo aunque el recuadro tiemble un poco.            */
+  const INTENTOS_REVISAR = 3;
+  const TOLERANCIA = 0.08;      // borde corrido menos de 8 % del tamaño del Post-it = está bien
+  const BORDE_MS = 250;         // lo mínimo que se ve cada destello del borde de prueba
+  const BORDE_MAX_MS = 900;     // lo máximo (el celular llega con retraso)
+  let revisando = false;
+  let retrasoCamara = 300;      // lo que tarda la cámara en mostrar un cambio (se va midiendo)
+
+  function conCorreccion(p) {
+    const k = p.corr || { l: 0, t: 0, r: 0, b: 0 };
+    return { x: p.x + k.l * p.width, y: p.y + k.t * p.height,
+      width: p.width * (1 + k.r - k.l), height: p.height * (1 + k.b - k.t) };
+  }
+
+  // Capa transparente solo para el borde de prueba (encima de todo, no tapa lo demás)
+  const capaBorde = document.createElement('canvas');
+  capaBorde.id = 'aaBordePrueba';
+  capaBorde.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147482500;display:none;pointer-events:none';
+  document.body.appendChild(capaBorde);
+
+  function dibujarBorde(caja) {
+    const w = capaBorde.width = window.innerWidth, h = capaBorde.height = window.innerHeight;
+    const g = capaBorde.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = '#fff'; g.lineWidth = Math.max(3, Math.round(Math.min(w, h) * 0.006));
+    g.strokeRect(caja.x * w, caja.y * h, caja.width * w, caja.height * h);
+  }
+
+  // Caja de la pantalla → lados en la foto de la cámara (en pixeles de la foto).
+  // Se usa el punto medio de cada lado: la cámara suele mirar de costado y el
+  // Post-it se ve torcido; en el medio del lado eso casi no cambia la medida.
+  function aCamara(caja, w, h) {
+    const inv = tracker.mapper.invMatrix;
+    const mx = caja.x + caja.width / 2, my = caja.y + caja.height / 2;
+    return { x0: aplicar(inv, caja.x, my).x * w, x1: aplicar(inv, caja.x + caja.width, my).x * w,
+             y0: aplicar(inv, mx, caja.y).y * h, y1: aplicar(inv, mx, caja.y + caja.height).y * h };
+  }
+
+  // Con proyector: dónde cayó el borde blanco en la cámara (o null si no se vio).
+  // El borde se prende 2 veces cortas con una pausa: solo cuenta lo que se prendió las
+  // 2 veces y estaba apagado antes y en la pausa. Las bolas que caen no cumplen eso y
+  // las que están quietas se anulan solas.
+  // El borde se dibuja un poco más afuera del recuadro (MARGEN) para no caer encima del
+  // marco blanco que la app ya dibuja en cada Post-it; al medir se descuenta ese margen.
+  const MARGEN = 0.15;
+  async function medirBorde(cajaReal) {
+    const caja = { x: cajaReal.x - cajaReal.width * MARGEN, y: cajaReal.y - cajaReal.height * MARGEN,
+                   width: cajaReal.width * (1 + 2 * MARGEN), height: cajaReal.height * (1 + 2 * MARGEN) };
+    const off1 = sacarFoto();
+    const { w, h } = off1;
+    const esp = aCamara(caja, w, h);                  // donde debería caer
+    const an = esp.x1 - esp.x0, al = esp.y1 - esp.y0;
+    if (an < 4 || al < 4) return null;
+    const zona = [Math.max(0, Math.floor(esp.x0 - an * 0.6)), Math.min(w - 1, Math.ceil(esp.x1 + an * 0.6)),
+                  Math.max(0, Math.floor(esp.y0 - al * 0.6)), Math.min(h - 1, Math.ceil(esp.y1 + al * 0.6))];
+    dibujarBorde(caja);
+    try {
+      const on1 = await destelloBorde(off1, esp, true);
+      if (!on1) return null;
+      const off2 = await destelloBorde(on1, esp, false);
+      if (!off2) return null;
+      const on2 = await destelloBorde(off2, esp, true);
+      if (!on2) return null;
+      const r = lados([off1, off2], [on1, on2], w, zona);
+      if (!r) return null;
+      // Se descuenta el margen: lo corrido que cayó el borde grande es lo corrido del recuadro
+      const real = aCamara(cajaReal, w, h);
+      return { x0: real.x0 + r.x0 - esp.x0, x1: real.x1 + r.x1 - esp.x1, y0: real.y0 + r.y0 - esp.y0, y1: real.y1 + r.y1 - esp.y1 };
+    } finally {
+      // La cámara (sobre todo el celular) muestra el borde un rato después de apagarlo:
+      // se espera ese retraso para que la próxima foto «antes» salga limpia.
+      capaBorde.style.display = 'none';
+      await esperar(Math.min(BORDE_MAX_MS, retrasoCamara + 120));
+    }
+  }
+
+  // Prende (o apaga) el borde y espera a que la cámara lo muestre: devuelve esa foto.
+  // Cuenta como visto solo si cambió a lo largo de al menos la mitad del contorno esperado
+  // (una bola que cae cambia un puntito, no un contorno).
+  async function destelloBorde(previa, esp, prender) {
+    capaBorde.style.display = prender ? 'block' : 'none';
+    const inicio = ahora(), { w, h } = previa;
+    const an = esp.x1 - esp.x0, al = esp.y1 - esp.y0, banda = Math.max(3, Math.round(Math.max(an, al) * 0.45));
+    const puntos = [];
+    for (let k = 1; k < 20; k++) {
+      const fx = esp.x0 + an * k / 20, fy = esp.y0 + al * k / 20;
+      puntos.push([fx, esp.y0, 0, 1], [fx, esp.y1, 0, 1], [esp.x0, fy, 1, 0], [esp.x1, fy, 1, 0]);
+    }
+    let vista = null, visto = 0;
+    while (ahora() - inicio < BORDE_MAX_MS + 200) {
+      await esperar(50);
+      const f = sacarFoto();
+      let tocados = 0;
+      for (const [px, py, dx, dy] of puntos) {
+        for (let k = -banda; k <= banda; k++) {
+          const x = Math.round(px + dx * k), y = Math.round(py + dy * k);
+          if (x < 0 || y < 0 || x >= w || y >= h) continue;
+          const d = f.gris[y * w + x] - previa.gris[y * w + x];
+          if (prender ? d > 25 : d < -25) { tocados++; break; }
+        }
+      }
+      // Se toma una foto un poco después de verlo por primera vez: la primera puede venir a medias
+      if (tocados >= puntos.length * 0.5) {
+        if (!vista) { retrasoCamara = retrasoCamara * 0.5 + (ahora() - inicio) * 0.5; visto = ahora(); }
+        vista = f; if (ahora() - visto >= 110 && (!prender || ahora() - inicio >= BORDE_MS)) break;
+      } else if (vista) { vista = null; }
+    }
+    return vista;
+  }
+
+  function lados(apagadas, prendidas, w, [xa, xb, ya, yb]) {
+    // Cuánto se prendió cada punto: lo menos que subió entre las fotos prendidas y apagadas
+    const dif = new Int16Array(w * (yb + 1));
+    let alto = 0;
+    for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) {
+      const i = y * w + x;
+      const v = Math.min(prendidas[0].gris[i], prendidas[1].gris[i]) - Math.max(apagadas[0].gris[i], apagadas[1].gris[i]);
+      dif[i] = v; if (v > alto) alto = v;
+    }
+    if (alto < 18) return null;
+    const umbral = Math.max(12, alto * 0.4);
+    const prendido = (x, y) => dif[y * w + x] >= umbral;
+    // Paso 1: más o menos dónde quedó el cuadrado prendido (sin los puntos sueltos)
+    const xs = [], ys = [];
+    for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) if (prendido(x, y)) { xs.push(x); ys.push(y); }
+    if (xs.length < 12) return null;
+    const corte = (v, q) => { v.sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(v.length * q))]; };
+    const r0 = { x0: corte(xs, 0.03), x1: corte(xs, 0.97), y0: corte(ys, 0.03), y1: corte(ys, 0.97) };
+    const an = r0.x1 - r0.x0, al = r0.y1 - r0.y0;
+    if (an < 4 || al < 4) return null;
+    // Paso 2: cada lado como línea: la columna (o fila) con más puntos prendidos, cerca de ahí
+    const linea = (centro, vertical) => {
+      const [d0, d1] = vertical ? [Math.max(xa, Math.round(centro - an * 0.25)), Math.min(xb, Math.round(centro + an * 0.25))]
+                                : [Math.max(ya, Math.round(centro - al * 0.25)), Math.min(yb, Math.round(centro + al * 0.25))];
+      const [a0, a1] = vertical ? [Math.round(r0.y0 + al * 0.2), Math.round(r0.y1 - al * 0.2)]
+                                : [Math.round(r0.x0 + an * 0.2), Math.round(r0.x1 - an * 0.2)];
+      const cuenta = [];
+      for (let k = d0; k <= d1; k++) { let c = 0; for (let j = a0; j <= a1; j++) if (vertical ? prendido(k, j) : prendido(j, k)) c++; cuenta.push(c); }
+      let mk = -1, mc = 0;
+      for (let k = 0; k < cuenta.length; k++) { const c = (cuenta[k - 1] || 0) + cuenta[k] * 2 + (cuenta[k + 1] || 0); if (c > mc) { mc = c; mk = k; } }
+      return mk >= 0 && mc >= Math.max(6, (a1 - a0 + 1) * 0.6) ? d0 + mk + 0.5 : NaN;
+    };
+    const r = { x0: linea(r0.x0, true), x1: linea(r0.x1, true), y0: linea(r0.y0, false), y1: linea(r0.y1, false) };
+    return [r.x0, r.x1, r.y0, r.y1].every(isFinite) ? r : null;
+  }
+
+  // Sin proyector: bordes del papel en la imagen, buscando dónde cambia el color
+  // desde el centro hacia afuera, en 5 líneas por lado.
+  function medirPapel(caja) {
+    const w = tracker.procWidth, h = tracker.procHeight;
+    const d = tracker.procCtx.getImageData(0, 0, w, h).data;
+    const r = aCamara(caja, w, h);
+    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2, an = r.x1 - r.x0, al = r.y1 - r.y0;
+    if (an < 6 || al < 6) return null;
+    const px = (x, y) => {
+      x = Math.round(x); y = Math.round(y);
+      if (x < 0 || y < 0 || x >= w || y >= h) return null;
+      const i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]];
+    };
+    // Color del papel: promedio del centro
+    const s = [0, 0, 0]; let n = 0;
+    for (let y = cy - al * 0.2; y <= cy + al * 0.2; y += 2) for (let x = cx - an * 0.2; x <= cx + an * 0.2; x += 2) {
+      const c = px(x, y); if (c) { s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; }
+    }
+    if (!n) return null;
+    const papel = s.map(v => v / n);
+    const lejos = c => !c || Math.hypot(c[0] - papel[0], c[1] - papel[1], c[2] - papel[2]) > 55;
+    const mediana = v => { const o = v.filter(isFinite).sort((a, b) => a - b); return o.length >= 3 ? o[o.length >> 1] : NaN; };
+    // Primer punto donde ya no es papel (2 seguidos, para no frenar en una manchita)
+    const buscar = (x, y, dx, dy, max) => {
+      for (let k = 1; k < max; k++) if (lejos(px(x + dx * k, y + dy * k)) && lejos(px(x + dx * (k + 1), y + dy * (k + 1)))) return k;
+      return NaN;
+    };
+    const lineas = [-0.3, -0.15, 0, 0.15, 0.3];
+    const izq = mediana(lineas.map(f => cx - buscar(cx, cy + f * al, -1, 0, an)));
+    const der = mediana(lineas.map(f => cx + buscar(cx, cy + f * al, 1, 0, an)));
+    const arr = mediana(lineas.map(f => cy - buscar(cx + f * an, cy, 0, -1, al)));
+    const aba = mediana(lineas.map(f => cy + buscar(cx + f * an, cy, 0, 1, al)));
+    if (![izq, der, arr, aba].every(isFinite)) return null;
+    return { x0: izq + 1, x1: der, y0: arr + 1, y1: aba };
+  }
+
+  function nombreColor(hex) {
+    if (!hex || hex[0] !== '#') return '';
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16));
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), dd = max - min;
+    if (!dd) return '';
+    let t = max === r ? ((g - b) / dd) % 6 : max === g ? (b - r) / dd + 2 : (r - g) / dd + 4;
+    t = (t * 60 + 360) % 360;
+    return t < 20 || t >= 330 ? 'rosado' : t < 45 ? 'naranja' : t < 70 ? 'amarillo' : t < 160 ? 'verde' : t < 250 ? 'celeste' : t < 290 ? 'lila' : 'rosado';
+  }
+
+  async function revisar(p) {
+    revisando = true;
+    try {
+      // Hasta 3 correcciones. Una medida dudosa (no se vio el borde o salió de otro tamaño)
+      // no cuenta como intento, pero no se prueba más de 6 veces en total.
+      let intento = 0, medidas = 0;
+      while (intento < INTENTOS_REVISAR && medidas < INTENTOS_REVISAR * 2) {
+        medidas++;
+        if (!pistas.includes(p) || ajustando) return;
+        const caja = conCorreccion(p);
+        const w = tracker.procWidth, h = tracker.procHeight;
+        // Dónde está el papel en la cámara y dónde cae (o se calcula) el recuadro
+        const papel = sinProyector ? medirPapel(p) : aCamara(p, w, h);
+        const cae = sinProyector ? aCamara(caja, w, h) : await medirBorde(caja);
+        // El borde proyectado tiene el mismo tamaño que el papel aunque caiga corrido:
+        // si salió muy distinto, la cámara vio otra cosa (una bola, una sombra) y se repite.
+        const parecido = (a, b) => Math.abs(a - b) <= Math.max(3, b * 0.2);
+        const dudosa = !papel || !cae || (!sinProyector && !(parecido(cae.x1 - cae.x0, papel.x1 - papel.x0) && parecido(cae.y1 - cae.y0, papel.y1 - papel.y0)));
+        if (dudosa) { (p.historial = p.historial || []).push({ dudosa: true, cae: cae && [cae.x0, cae.x1, cae.y0, cae.y1].map(Math.round) }); p.historial = p.historial.slice(-6); await esperar(150); continue; }
+        intento++;
+        const an = papel.x1 - papel.x0, al = papel.y1 - papel.y0;
+        // Con proyector el borde tiene el tamaño del recuadro: lo que importa es cuánto cayó corrido
+        // (se usa el promedio de los 2 lados, así un lado tapado por una bola pesa la mitad).
+        // Sin proyector se compara cada borde del papel con el recuadro.
+        const err = sinProyector
+          ? [(cae.x0 - papel.x0) / an, (cae.y0 - papel.y0) / al, (cae.x1 - papel.x1) / an, (cae.y1 - papel.y1) / al]
+          : [(cae.x0 + cae.x1 - papel.x0 - papel.x1) / 2 / an, (cae.y0 + cae.y1 - papel.y0 - papel.y1) / 2 / al];
+        p.ultimoError = Math.max(...err.map(Math.abs));
+        (p.historial = p.historial || []).push({ papel: [papel.x0, papel.x1, papel.y0, papel.y1].map(Math.round), cae: [cae.x0, cae.x1, cae.y0, cae.y1].map(Math.round), error: +p.ultimoError.toFixed(3) });
+        p.historial = p.historial.slice(-6); // registro corto de los intentos (para revisar desde la consola)
+        if (p.ultimoError < TOLERANCIA) {
+          p.revisar = false; p.revisado = intento;
+          const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
+          correccionesVistas = correccionesVistas.filter(o => Math.abs(o.x - cx) >= p.width || Math.abs(o.y - cy) >= p.height);
+          if (p.corr) correccionesVistas.push({ x: cx, y: cy, corr: Object.assign({}, p.corr) });
+          return;
+        }
+        // Se corre cada borde lo que le falta, medido en la pantalla
+        const M = tracker.mapper;
+        const pant = (x, y) => M.transform(x / w, y / h);
+        const my = (papel.y0 + papel.y1) / 2, mx = (papel.x0 + papel.x1) / 2;
+        const k = p.corr || { l: 0, t: 0, r: 0, b: 0 };
+        // Se corrige el 90 % de lo medido: así llega sin pasarse aunque la medida tiemble
+        const SUAVE = 0.9;
+        const d = {
+          l: (pant(papel.x0, my).x - pant(cae.x0, my).x) / p.width, r: (pant(papel.x1, my).x - pant(cae.x1, my).x) / p.width,
+          t: (pant(mx, papel.y0).y - pant(mx, cae.y0).y) / p.height, b: (pant(mx, papel.y1).y - pant(mx, cae.y1).y) / p.height };
+        if (!sinProyector) { d.l = d.r = (d.l + d.r) / 2; d.t = d.b = (d.t + d.b) / 2; }   // solo se corre, no cambia de tamaño
+        for (const lado of ['l', 't', 'r', 'b']) k[lado] += SUAVE * d[lado];
+        // Nunca más de medio Post-it de corrección por lado
+        for (const lado of ['l', 't', 'r', 'b']) k[lado] = Math.max(-0.5, Math.min(0.5, k[lado]));
+        p.corr = k;
+        await esperar(120);
+      }
+      if (!pistas.includes(p)) return;
+      p.revisar = false; p.revisado = 0;
+      const nombre = nombreColor(p.color);
+      aviso(`No pude ajustar el Post-it${nombre ? ' ' + nombre : ''}, tócalo otra vez`, 4000, 'blanco');
+    } catch (e) {
+      console.warn('Revisión del Post-it:', e);
+      p.revisar = false;
+    } finally {
+      revisando = false;
+    }
+  }
+
+  // Revisa de a un Post-it, cuando está quieto y nadie lo tapa
+  setInterval(() => {
+    if (!auto || !ajustado || ajustando || revisando || !listo() || !tracker || !tracker.mapper.invMatrix) return;
+    const p = pistas.find(q => q.confirmado && q.revisar && !q.tapadoDesde && (sinProyector || partesMovidas(q, 1) < 0.1));
+    if (p) revisar(p);
+  }, 250);
+
+  // Al tocar un Post-it («Enseñar»): se vuelve a revisar el que está ahí (nx, ny: imagen de la cámara)
+  function revisarEn(nx, ny) {
+    if (!tracker || !tracker.mapper.matrix) return;
+    const q = tracker.mapper.transform(nx, ny);
+    const p = pistas.find(o => q.x >= o.x && q.x <= o.x + o.width && q.y >= o.y && q.y <= o.y + o.height);
+    if (p) { p.revisar = true; p.corr = null; }
   }
 
   /* ---------- 7. Luz ---------- */
@@ -727,23 +1028,32 @@
     this.ctx.restore();
   };
 
-  // Con poca luz la cámara entrega todo oscuro: se le sube el brillo antes de buscar colores
+  // Con poca luz la cámara entrega todo oscuro: se le sube el brillo antes de buscar colores.
+  // Tope: lo más claro de la imagen (casi siempre los Post-its) no debe llegar a blanco (máx. ×2,2),
+  // porque un Post-it quemado pierde su color. Con pared oscura o negra antes se subía
+  // hasta ×1,8 y los Post-its naranja y verdes salían blancos.
   let ganancia = 1, ultimaMedida = 0;
   function medirBrillo(t) {
     if (ahora() - ultimaMedida < 1000 || !t.mapper.matrix) return;
     ultimaMedida = ahora();
     chctx.drawImage(t.procCanvas, 0, 0, CH_W, CH_H);
     const d = chctx.getImageData(0, 0, CH_W, CH_H).data;
-    let s = 0, n = 0;
-    for (let y = 0; y < CH_H; y += 2) for (let x = 0; x < CH_W; x += 2) {
+    const brillos = [];
+    for (let y = 0; y < CH_H; y++) for (let x = 0; x < CH_W; x++) {
       const p = t.mapper.transform((x + 0.5) / CH_W, (y + 0.5) / CH_H);
       if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) continue; // solo dentro de la proyección
       const i = (y * CH_W + x) * 4;
-      s += Math.max(d[i], d[i + 1], d[i + 2]); n++;
+      brillos.push(Math.max(d[i], d[i + 1], d[i + 2]));
     }
-    if (n < 20) return;
-    const medio = s / n;                       // ya incluye el brillo puesto
-    ganancia = Math.min(1.8, Math.max(1, ganancia * Math.pow(140 / Math.max(1, medio), 0.3)));
+    if (brillos.length < 80) return;
+    brillos.sort((a, b) => a - b);
+    // Los valores medidos ya traen el brillo puesto: se quitan para ver la imagen tal cual
+    const medio = brillos.reduce((s, v) => s + v, 0) / brillos.length / ganancia;
+    const claro = brillos[Math.floor(brillos.length * 0.995)] / ganancia; // casi lo más claro (no un solo punto suelto)
+    // Se sube hasta que lo claro quede cerca de 225 (con margen para no quemar). El promedio solo
+    // decide si hace falta: con una pared clara pero Post-its oscuros también se sube.
+    const quiero = medio > 140 && claro > 200 ? 1 : Math.min(225 / Math.max(1, claro), 2.2);
+    ganancia = Math.max(1, ganancia * 0.5 + Math.max(1, quiero) * 0.5);
     t.procCtx.filter = ganancia > 1.02 ? `brightness(${ganancia.toFixed(2)})` : 'none';
   }
 
@@ -762,14 +1072,16 @@
       background: rgba(15,23,42,.92); color: #fff; font: 600 15px system-ui, sans-serif; padding: 10px 18px;
       border-radius: 10px; max-width: min(92vw, 640px); text-align: center; opacity: 0; transition: opacity .3s; pointer-events: none; }
     .aa-aviso.ver { opacity: 1; }
+    .aa-aviso.blanco { background: #fff; color: #1d4ed8; border: 2px solid #3b82f6; }
   </style>`);
 
   const cartel = document.createElement('div');
   cartel.className = 'aa-aviso';
   document.body.appendChild(cartel);
   let relojCartel = null;
-  function aviso(texto, ms = 3500) {
+  function aviso(texto, ms = 3500, tipo) {
     cartel.textContent = texto; cartel.classList.add('ver');
+    cartel.classList.toggle('blanco', tipo === 'blanco');
     clearTimeout(relojCartel); relojCartel = setTimeout(() => cartel.classList.remove('ver'), ms);
   }
 
@@ -871,6 +1183,9 @@
     modo: () => modoProyector,
     cambiarModo,
     paso: () => ultimoPaso,
+    revisarEn,
+    revisarTodos: () => pistas.forEach(p => { p.revisar = true; }),
+    revisiones: () => pistas.filter(p => p.confirmado).map(p => ({ revisar: !!p.revisar, revisado: p.revisado, error: p.ultimoError, corr: p.corr, historial: (p.historial || []).slice(-6) })),
     estado: () => ({ auto, modo: modoProyector, ajustado, sinProyector, ajustando, fallos, resultado: ultimoResultado, factorLuz, ganancia, pistas: pistas.length,
       postits: tracker ? (tracker.obstacles || []).map(o => ({ x: o.x, y: o.y, w: o.width, h: o.height })) : [] })
   };

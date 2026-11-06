@@ -102,12 +102,16 @@
     this.currentCenterSample = this.sampleCenterCard();
 
     const datos = this.procCtx.getImageData(0, 0, w, h).data;
+
     const mascara = this.showMask ? this.procCtx.createImageData(w, h) : null;
 
     // 3b. Cada celda de 3x3 px: ¿de qué color es? (0 = ninguno, 1..N = color de la lista)
     const celda = 3;
     const cols = Math.floor(w / celda), filas = Math.floor(h / celda);
     const grilla = new Uint8Array(cols * filas);
+    // Tono de cada celda (como flecha en un círculo: x = coseno, y = seno), para juntar
+    // las partes de un Post-it cuyo tono cae justo en el límite entre dos colores.
+    const tonoX = new Float32Array(cols * filas), tonoY = new Float32Array(cols * filas);
     const conteo = new Uint8Array(lista.length);
     const minimo = celda * celda * 0.35; // igual que la app: 35% de la celda
     // Celdas donde la app está proyectando una bola de color (las marca auto-ajuste.js):
@@ -119,26 +123,32 @@
       for (let gx = 0; gx < cols; gx++) {
         if (tapa && tapa[gy * cols + gx]) continue;
         conteo.fill(0);
+        let sr = 0, sg = 0, sb = 0;
         for (let py = 0; py < celda; py++) {
           for (let px = 0; px < celda; px++) {
             const i = ((gy * celda + py) * w + gx * celda + px) * 4;
             const n = colorDelPixel(datos[i], datos[i + 1], datos[i + 2], lista);
-            if (n >= 0) conteo[n]++;
+            if (n >= 0) { conteo[n]++; sr += datos[i]; sg += datos[i + 1]; sb += datos[i + 2]; }
             if (mascara) pintarMascara(mascara.data, i, n, lista);
           }
         }
         // Se queda con el color que más se repite en la celda
         let mejor = -1, mayor = 0;
         for (let k = 0; k < conteo.length; k++) if (conteo[k] > mayor) { mayor = conteo[k]; mejor = k; }
-        if (mejor >= 0 && mayor >= minimo) grilla[gy * cols + gx] = mejor + 1;
+        if (mejor >= 0 && mayor >= minimo) {
+          grilla[gy * cols + gx] = mejor + 1;
+          const t = tonoDe(sr, sg, sb) * Math.PI / 180;
+          tonoX[gy * cols + gx] = Math.cos(t); tonoY[gy * cols + gx] = Math.sin(t);
+        }
       }
     }
 
     // 3c. Junta celdas vecinas del mismo color en una caja
-    const cajas = juntarCeldas(grilla, cols, filas, celda, w, h, this.minArea, this.maxArea);
+    const cajas = juntarCeldas(grilla, cols, filas, celda, w, h, this.minArea, this.maxArea, tonoX, tonoY);
+    if (++cuadros % 15 === 1) ganancia = balanceDeBlancos(datos, w, h, cajas); // cada 15 cuadros basta
     // 3d. Color de cada Post-it: el color REAL medido en la imagen, un poco más vivo
     //     (lo usan «Pintar colores» y la miniatura de la foto)
-    if (++cuadros % 15 === 1) ganancia = balanceDeBlancos(datos, w, h, cajas); // cada 15 cuadros basta
+
     cajas.forEach(c => {
       c.muestra = lista[c.color].muestra;
       c.colorReal = colorReal(datos, w, h, c, lista);
@@ -341,14 +351,35 @@
       proporcion <= FILA_PROPORCION_MAX && proporcion >= 1 / FILA_PROPORCION_MAX;
   }
 
-  function juntarCeldas(grilla, cols, filas, celda, w, h, areaMin, areaMax) {
+  // Tono (0-360°) de un color RGB
+  function tonoDe(r, g, b) {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (!d) return 0;
+    let t = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (t * 60 + 360) % 360;
+  }
+
+  // Una celda de otro color de la lista se suma al Post-it si su tono está a menos de
+  // TONO_JUNTAR grados del tono promedio del Post-it (mismo papel con el tono en el límite).
+  // Dos Post-its distintos pegados (amarillo y naranja: ~27°) siguen separados.
+  const TONO_JUNTAR = 10;
+  const COS_JUNTAR = Math.cos(TONO_JUNTAR * Math.PI / 180);
+
+  function juntarCeldas(grilla, cols, filas, celda, w, h, areaMin, areaMax, tonoX, tonoY) {
     const visto = new Uint8Array(cols * filas);
     const cajas = [];
     for (let inicio = 0; inicio < grilla.length; inicio++) {
       const color = grilla[inicio];
       if (!color || visto[inicio]) continue;
       let x0 = cols, x1 = 0, y0 = filas, y1 = 0, total = 0;
-      const pila = [inicio];
+      const pila = [inicio], porColor = new Map();
+      let sumaX = 0, sumaY = 0; // tono promedio del Post-it mientras crece
+      const parecido = t => {
+        if (!tonoX) return false;
+        const largo = Math.hypot(sumaX, sumaY);
+        return largo > 0 && (tonoX[t] * sumaX + tonoY[t] * sumaY) / largo >= COS_JUNTAR;
+      };
+      const mismo = t => grilla[t] === color || (grilla[t] && parecido(t));
       // Con el ajuste automático se guardan las celdas del borde: así la caja se
       // calcula en la pantalla con la forma real (un Post-it visto de lado o torcido
       // ya no sale más grande que el papel).
@@ -358,8 +389,10 @@
         const j = pila.pop();
         const x = j % cols, y = (j / cols) | 0;
         total++;
+        porColor.set(grilla[j], (porColor.get(grilla[j]) || 0) + 1);
+        if (tonoX) { sumaX += tonoX[j]; sumaY += tonoY[j]; }
         if (borde && (x === 0 || y === 0 || x === cols - 1 || y === filas - 1 ||
-            grilla[j - 1] !== color || grilla[j + 1] !== color || grilla[j - cols] !== color || grilla[j + cols] !== color)) {
+            !mismo(j - 1) || !mismo(j + 1) || !mismo(j - cols) || !mismo(j + cols))) {
           borde.push(x, y);
         }
         if (x < x0) x0 = x; if (x > x1) x1 = x;
@@ -370,14 +403,14 @@
         if (y + 1 < filas) probar(j + cols);
         if (y > 0)         probar(j - cols);
       }
-      function probar(t) { if (grilla[t] === color && !visto[t]) { visto[t] = 1; pila.push(t); } }
+      function probar(t) { if (!visto[t] && mismo(t)) { visto[t] = 1; pila.push(t); } }
 
       const area = total * celda * celda;
       if (area >= Math.max(areaMin, AREA_MINIMA) && area <= areaMax && pareceUnPostit(x1 - x0 + 1, y1 - y0 + 1, total)) {
         cajas.push({
           x: x0 * celda / w, y: y0 * celda / h,
           width: (x1 - x0 + 1) * celda / w, height: (y1 - y0 + 1) * celda / h,
-          area, color: color - 1,
+          area, color: [...porColor.entries()].sort((a, b) => b[1] - a[1])[0][0] - 1, // el color que más tiene
           borde: borde && { celdas: borde, celda, w, h }
         });
       }
@@ -651,6 +684,8 @@
     }
     guardar(); dibujarBotones();
     ultimoToque = { x: nx, y: ny, bien: true, hasta: performance.now() + 1500 };
+    // La app vuelve a probar sola que el recuadro de ese Post-it caiga justo (auto-ajuste.js)
+    if (window.AutoAjuste && window.AutoAjuste.revisarEn) window.AutoAjuste.revisarEn(nx, ny);
     return { ok: true, texto };
   }
 
