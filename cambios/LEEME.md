@@ -118,8 +118,8 @@ Los dos cambian lo mismo, y la app recuerda el último elegido. La primera vez e
 
 - **Con proyector** (para el aula): se ajusta sola a la proyección con los cuadritos. Si la cámara no ve
   la pantalla, avisa «No veo la pantalla» y lo vuelve a intentar cada 10 segundos, **3 veces como máximo**.
-  Después para (sin más destellos) hasta que toques «Ajustar ahora», toques «Con proyector» o cambies de
-  cámara; cada vez tiene 3 intentos nuevos. Nunca cambia sola de modo.
+  Después **apaga solo el interruptor «Ajuste automático»** (sin más destellos). Para intentar de nuevo,
+  préndelo, o toca «Con proyector» en el celular: cada vez tiene 3 intentos nuevos. Nunca cambia sola de modo.
 - **Sin proyector** (por ejemplo, la cámara de la laptop mirándote): no muestra destellos. Toda la imagen de
   la cámara es la pantalla. El recuadro sigue al Post-it aunque lo tengas en la mano, lo quita apenas sale
   y no cuenta los dedos que lo sostienen. «Ajustar ahora» no se usa en este modo.

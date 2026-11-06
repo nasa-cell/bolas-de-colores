@@ -33,3 +33,4 @@
 - [x] 20. Botones «Con proyector» / «Sin proyector» en la PC y botón «Modo» en el celular; se recuerda al recargar
 - [ ] 19. Modelo que aprende «es Post-it / no es»: según cómo vaya la prueba
 - [x] 21. «Con proyector»: solo 3 intentos y para; «Ajustar ahora», «Con proyector» o cambiar de cámara dan 3 nuevos
+- [x] 22. Tras 3 intentos fallidos se apaga solo «Ajuste automático»; prenderlo (o «Con proyector» en el celular) da 3 intentos nuevos

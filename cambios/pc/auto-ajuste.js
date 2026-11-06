@@ -168,8 +168,10 @@
     fallos++;
     clearTimeout(relojReintento);
     if (fallos >= INTENTOS_MAX) {
-      estado(`No vi la pantalla en ${INTENTOS_MAX} intentos. Apunta la cámara a la proyección y toca «Ajustar ahora».`);
-      aviso(`No vi la pantalla en ${INTENTOS_MAX} intentos. Apunta la cámara y toca «Ajustar ahora» (H → Calibración)`, 8000);
+      // Tras 3 intentos se apaga el ajuste automático: para volver a probar hay que prenderlo
+      ponerAuto(false, true);
+      estado(`No vi la pantalla en ${INTENTOS_MAX} intentos: apagué el ajuste automático. Préndelo para intentar de nuevo.`);
+      aviso(`No vi la pantalla en ${INTENTOS_MAX} intentos: apagué el ajuste automático. Préndelo para intentar de nuevo`, 8000);
       return;
     }
     estado(`No veo la pantalla (intento ${fallos} de ${INTENTOS_MAX}). Apunta la cámara a la proyección: lo intento de nuevo en 10 s.`);
@@ -809,6 +811,8 @@
     if (nuevo !== 'con' && nuevo !== 'sin') nuevo = modoProyector === 'con' ? 'sin' : 'con';
     modoProyector = nuevo;
     try { localStorage.setItem(CLAVE_MODO, nuevo); } catch (x) {}
+    // Elegir «Con proyector» (también desde el celular) vuelve a prender el ajuste automático
+    if (nuevo === 'con' && !auto) ponerAuto(true, true);
     clearTimeout(relojReintento);
     if (auto) {
       if (nuevo === 'sin') usarImagenCompleta();
@@ -826,16 +830,20 @@
   }
   caja.querySelectorAll('#aaModo button').forEach(b => b.addEventListener('click', () => cambiarModo(b.dataset.modo)));
 
-  caja.querySelector('#autoAjusteToggle').addEventListener('change', (e) => {
-    auto = e.target.checked;
+  // Prende o apaga el ajuste automático (interruptor, botón del celular o tras 3 intentos fallidos)
+  function ponerAuto(valor, callado) {
+    clearTimeout(relojReintento);
+    auto = valor;
+    caja.querySelector('#autoAjusteToggle').checked = valor;
     window.autoAjusteActivo = auto;
     try { localStorage.setItem(CLAVE, auto ? '1' : '0'); } catch (x) {}
     pistas = [];
     if (tracker) { tracker.obstacles = []; tracker.procCtx.filter = 'none'; }
     if (auto) { ajustado = false; sinProyector = false; fallos = 0; desdeListo = ahora(); estado('Ajustando…'); }
     mostrarModo();
-    aviso(auto ? 'Ajuste automático prendido' : 'Modo manual');
-  });
+    if (!callado) aviso(auto ? 'Ajuste automático prendido' : 'Modo manual');
+  }
+  caja.querySelector('#autoAjusteToggle').addEventListener('change', (e) => ponerAuto(e.target.checked));
   caja.querySelector('#autoAjusteAhora').addEventListener('click', () => {
     fallos = 0;
     if (modoProyector !== 'con') { aviso('«Ajustar ahora» es para el modo «Con proyector»'); return; }

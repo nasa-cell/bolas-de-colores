@@ -18,7 +18,7 @@ Desarrollado en un **único archivo independiente** ([`index.html`](index.html))
 | **Subir foto** | Usa una foto en vez de la cámara para buscar Post-its, con miniatura en la esquina. |
 | **Pintar colores** | Cada bolita toma el color real del Post-it con que choca. |
 | **Ajuste automático** | Sin calibrar a mano: unos destellos de 1 a 3 segundos al iniciar y la cámara sabe sola dónde cae la proyección. Separa Post-its pegados, ignora a la persona que pasa y vuelve a medir si se mueve la cámara. Modo manual en H → Calibración. |
-| **Con proyector / Sin proyector** | Dos botones en H → Calibración y botón «Modo» en el celular. «Sin proyector» usa la imagen completa de la cámara (por ejemplo la de la laptop): sigue al Post-it en la mano y no cuenta los dedos. «Con proyector» se ajusta solo y, si no ve la pantalla, lo intenta 3 veces y para. |
+| **Con proyector / Sin proyector** | Dos botones en H → Calibración y botón «Modo» en el celular. «Sin proyector» usa la imagen completa de la cámara (por ejemplo la de la laptop): sigue al Post-it en la mano y no cuenta los dedos. «Con proyector» se ajusta solo y, si no ve la pantalla, lo intenta 3 veces y apaga el ajuste automático hasta que lo vuelvas a prender. |
 | **Enseñar un Post-it** | Si no detecta un Post-it, se toca en el video (H → Cromática) o en el celular con «Enseñar Post-it» y aprende su color con la luz del momento. |
 
 Para usar el celular: doble clic en [`cambios/iniciar.cmd`](cambios/iniciar.cmd) (requiere [Node.js](https://nodejs.org)). Todo está explicado en [`cambios/LEEME.md`](cambios/LEEME.md).
