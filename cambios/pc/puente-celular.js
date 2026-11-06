@@ -142,6 +142,9 @@
     alQuitarFoto.forEach(f => f());
   }
 
+  // Cuando cambia el modo (en la PC o en el celular), el celular muestra el nuevo
+  window.addEventListener('posits-modo', (e) => avisarCelular({ tipo: 'modo', modo: e.detail }));
+
   window.PuenteCamara = {
     // Pone una imagen (ya cargada) como cámara
     ponerFoto(imagen) {
@@ -373,10 +376,26 @@
       }
       if (msg.tipo === 'celular-dentro') {
         celularConectado = true;
+        if (window.AutoAjuste && window.AutoAjuste.modo) avisarCelular({ tipo: 'modo', modo: window.AutoAjuste.modo() });
         if (fotoPuesta) avisarCelular({ tipo: 'pausa', texto: 'En pausa: la PC está usando una foto.' });
         primeraFoto = false;
         ocultarAviso();
         estadoVentana('● Celular conectado. Recibiendo imagen…', 'ok');
+      }
+      // El celular tocó un Post-it para enseñarlo (x, y de 0 a 1 en la foto que mandó)
+      if (msg.tipo === 'ensenar' && window.EnsenarPostit) {
+        const x = trackerApp && trackerApp.flipX ? 1 - msg.x : msg.x;
+        const y = trackerApp && trackerApp.flipY ? 1 - msg.y : msg.y;
+        const r = window.EnsenarPostit.tocar(x, y);
+        avisarCelular({ tipo: 'ensenado', ok: r.ok, texto: r.texto });
+      }
+      // Botón «Modo» del celular: cambia entre «Con proyector» y «Sin proyector»
+      if (msg.tipo === 'cambiar-modo' && window.AutoAjuste && window.AutoAjuste.cambiarModo) {
+        window.AutoAjuste.cambiarModo(msg.modo);
+      }
+      if (msg.tipo === 'olvidar-ensenados' && window.EnsenarPostit) {
+        window.EnsenarPostit.olvidar();
+        avisarCelular({ tipo: 'ensenado', ok: true, texto: 'Post-its enseñados olvidados' });
       }
       if (msg.tipo === 'celular-fuera') {
         celularConectado = false;
@@ -460,6 +479,7 @@
   let relojAvisoGiro = null;
   function avisoGiro() {
     if (!usarCelular) return;
+    if (window.autoAjusteActivo) return; // auto-ajuste.js vuelve a medir solo
     mostrarAviso('El celular giró: revisa la calibración (tecla H → Calibración).', false);
     clearTimeout(relojAvisoGiro);
     relojAvisoGiro = setTimeout(ocultarAviso, 8000);

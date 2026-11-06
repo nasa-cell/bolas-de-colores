@@ -43,7 +43,8 @@ cambios/
 │   ├── puente-celular.js
 │   ├── deteccion-colores.js
 │   ├── subir-foto.js
-│   └── pintar-colores.js
+│   ├── pintar-colores.js
+│   └── auto-ajuste.js
 └── herramientas/
     └── cloudflared.exe      ← programa del túnel
 ```
@@ -59,6 +60,7 @@ cambios/
 | `pc/deteccion-colores.js` | Detecta **varios colores de Post-it a la vez**, sin configurar nada, y **solo cosas con forma de Post-it**. Ver abajo. |
 | `pc/subir-foto.js` | Botón **«Subir foto»**: usa una foto en vez de la cámara para buscar Post-its. Ver abajo. |
 | `pc/pintar-colores.js` | Interruptor **«Pintar colores»**: cada bolita toma el color del Post-it con que choca. |
+| `pc/auto-ajuste.js` | **Ajuste automático**: la cámara encuentra sola dónde cae la proyección, mide la luz y sigue a cada Post-it. Sin calibrar a mano. Ver abajo. |
 | `herramientas/cloudflared.exe` | Programa gratis de Cloudflare que crea el link público `https://….trycloudflare.com`. Sin cuenta ni tarjeta. |
 
 Cada archivo de código está dividido en **bloques numerados** con comentarios de lo que hace cada uno.
@@ -70,7 +72,60 @@ El único cambio en el código original son **cuatro líneas** al final de `inde
 <script src="cambios/pc/puente-celular.js"></script>
 <script src="cambios/pc/subir-foto.js"></script>
 <script src="cambios/pc/pintar-colores.js"></script>
+<script src="cambios/pc/auto-ajuste.js"></script>
 ```
+
+## Ajuste automático (`pc/auto-ajuste.js`)
+
+Ya no hay que calibrar a mano. Se pega un Post-it y la app lo marca **del mismo tamaño y en el mismo lugar**.
+
+- **Al tocar «Iniciar»** la app se pone en pantalla completa y, después de 1 segundo, el proyector muestra
+  unos destellos: 12 cuadritos blancos, todo negro y otra vez los cuadritos (de 1 a 3 segundos en total).
+  La cámara los ve y pone sola las 4 esquinas. Mientras tanto dice «Ajustando la cámara… no tapes la pantalla».
+- **Con el celular** también funciona: la imagen del celular llega con retraso, así que en cada destello
+  la app espera a que llegue y a que la cámara termine de ajustar su brillo. Por eso puede tardar un poco más.
+- **Vuelve a medir sola** si:
+  - la cámara o el proyector se mueve (compara la imagen con la de antes);
+  - cambia el tamaño de la ventana (por ejemplo, tecla F);
+  - el celular gira o se cambia de cámara.
+- **Varios Post-its pegados en fila** (hasta 5) se separan: cada uno sale con su tamaño.
+- **La persona que pasa delante** no cuenta como Post-it, y los Post-its que tapa se quedan
+  en su lugar (hasta 30 segundos) hasta que se vuelvan a ver.
+- **Pegar y quitar:** un Post-it nuevo aparece cuando lleva medio segundo quieto. Si se quita, desaparece en 1 o 2 segundos.
+- **Luz:** con los destellos mide cuánta luz hay en el salón. Con mucha luz, las bolas salen más grandes y
+  el borde de los Post-its más grueso, para que se vean. Con poca luz sube el brillo de la cámara antes de buscar colores.
+- **Mide la forma real:** si la cámara está de lado, el cuadro ya no sale más grande que el papel.
+- Busca los **9 colores** a la vez (los de «Colores que detecta», en H → Cromática).
+
+En la consola (tecla **H → Calibración**), arriba:
+
+- **«Ajuste automático»** prendido (por defecto) o apagado. Apagado = **modo manual**: las 4 esquinas y los
+  ajustes finos funcionan como antes. Lo elegido se recuerda.
+- **«Ajustar ahora»**: vuelve a medir en el momento.
+- Debajo dice cómo salió la última medida, por ejemplo: «Listo · 12 de 12 puntos · error 0,0 % · luz del salón: media».
+
+Si no logra ver la proyección, lo intenta de nuevo 3 veces y avisa. Entonces conviene revisar que la cámara
+vea toda la pantalla, o usar el modo manual. Con una **foto subida** no se puede medir (la foto no ve los destellos):
+se usan las esquinas que ya había.
+
+Los valores se cambian al inicio de cada bloque de `pc/auto-ajuste.js`: `ESPERA_APARECER`, `ESPERA_QUITAR`,
+`TAPADO_MAX` y `AREA_MAX`.
+
+### Con proyector o sin proyector
+
+En la consola (tecla **H** → **Calibración**) hay dos botones, y en el celular el botón azul **«Modo: …»**.
+Los dos cambian lo mismo, y la app recuerda el último elegido. La primera vez empieza en «Con proyector».
+
+- **Con proyector** (para el aula): se ajusta sola a la proyección con los cuadritos. Si la cámara no ve
+  la pantalla, avisa «No veo la pantalla» y lo vuelve a intentar cada 10 segundos, **3 veces como máximo**.
+  Después para (sin más destellos) hasta que toques «Ajustar ahora», toques «Con proyector» o cambies de
+  cámara; cada vez tiene 3 intentos nuevos. Nunca cambia sola de modo.
+- **Sin proyector** (por ejemplo, la cámara de la laptop mirándote): no muestra destellos. Toda la imagen de
+  la cámara es la pantalla. El recuadro sigue al Post-it aunque lo tengas en la mano, lo quita apenas sale
+  y no cuenta los dedos que lo sostienen. «Ajustar ahora» no se usa en este modo.
+
+El ajuste solo se acepta si ve al menos 8 de los 12 cuadritos: así no se engaña con el reflejo de la
+pantalla en la cara o la pared.
 
 ## Subir foto (`pc/subir-foto.js`)
 
@@ -128,6 +183,21 @@ Si se borran esas líneas, la app vuelve a ser exactamente como antes.
 
 Los valores de cada color están al inicio del archivo (`COLORES_BASE`), y los del filtro de forma
 en `AREA_MINIMA`, `PROPORCION_MIN/MAX` y `RELLENO_MIN`, con comentarios.
+
+## Enseñar un Post-it tocándolo
+
+Si la app no ve un Post-it (color raro, o la luz del salón lo cambia), se le enseña tocándolo:
+
+- **En la PC:** tecla **H** → **Cromática** → toca el Post-it en el video de la cámara.
+- **En el celular:** toca **«Enseñar Post-it»** (el botón cambia a «Listo») y toca el Post-it en la pantalla.
+  Se pueden tocar varios seguidos. «Listo» termina.
+- La app mide el Post-it entero con la luz de ese momento y lo agrega a **«Post-its enseñados»**.
+  Aparece un anillo verde (aprendido) o rojo (no se pudo) donde se tocó, y un aviso corto.
+- No aprende si se toca la pared o la pantalla, ni un color que también tiene el fondo: avisa por qué.
+- Tocar otra vez un Post-it ya enseñado (por ejemplo, cuando cambia la luz) **ajusta** su color, no lo repite.
+- Se recuerda al recargar. Se borra con **«Olvidar los enseñados»** (PC) u **«Olvidar enseñados»** (celular),
+  o uno por uno tocando su ✕. Como máximo 9 enseñados.
+- Solo funciona en «Varios colores a la vez». Desde la consola del navegador: `EnsenarPostit.tocar(x, y)`.
 
 ## Marco verde en el celular
 

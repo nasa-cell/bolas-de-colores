@@ -20,7 +20,9 @@
    7. Texto de estado
    8. Pantalla siempre encendida
    9. Botones
-  10. Arranque
+  10. Enseñar un Post-it tocándolo
+  11. Modo: con proyector o sin proyector
+  12. Arranque
 -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -45,6 +47,11 @@
   button, select { width: 100%; min-width: 0; font: 600 14px inherit; font-family: inherit; padding: 11px 6px;
     border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .modo { grid-column: 1 / -1; background: #1e3a8a; border-color: #60a5fa; }
+  .ensenar.on { background: #1d4ed8; border-color: #60a5fa; }
+  .guia { position: absolute; left: 10px; right: 10px; bottom: 10px; text-align: center;
+    font: 700 14px inherit; font-family: inherit; padding: 9px 10px; border-radius: 8px;
+    background: rgba(29, 78, 216, .9); color: #fff; pointer-events: none; }
   .detener { grid-column: 1 / -1; background: #7f1d1d; border-color: #f43f5e; }
   .detener.reanudar { background: #065f46; border-color: #10b981; }
   .grande { position: absolute; inset: 0; margin: auto; width: 80%; height: 64px;
@@ -79,6 +86,7 @@
     <canvas id="marcos"></canvas>
     <div class="estado" id="estado">Conectando con la PC…</div>
     <button class="grande" id="permitir" hidden>Toca para usar la cámara</button>
+    <div class="guia" id="guia" hidden>Toca un Post-it que no tenga marco verde</div>
   </div>
   <div class="controles">
     <button id="cambiar">Cambiar cámara</button>
@@ -88,6 +96,9 @@
       <option value="640">Calidad: 480p</option>
     </select>
     <button id="girar">Girar a horizontal</button>
+    <button class="ensenar" id="ensenar">Enseñar Post-it</button>
+    <button id="olvidar">Olvidar enseñados</button>
+    <button class="modo" id="modo">Modo: Con proyector</button>
     <button class="detener" id="detener">Detener</button>
   </div>
 </div>
@@ -126,9 +137,9 @@ function mostrar(texto, tipo) {
   estado.textContent = texto;
   estado.className = 'estado' + (tipo ? ' ' + tipo : '');
 }
-function avisar(texto) {
-  avisoTemporal = { texto, hasta: performance.now() + 4000 };
-  mostrar(texto);
+function avisar(texto, tipo) {
+  avisoTemporal = { texto, tipo, hasta: performance.now() + 4000 };
+  mostrar(texto, tipo);
 }
 
 /* ---------- 2. Cámara ---------- */
@@ -160,6 +171,8 @@ function conectar() {
     if (e.data === 'ok') { esperandoOk = false; return; } // la PC ya recibió la foto
     let msg; try { msg = JSON.parse(e.data); } catch (x) { return; }
     if (msg.tipo === 'cajas') { cajas = msg.c; giroDeCajas = giroEnviado; horaCajas = performance.now(); return; }
+    if (msg.tipo === 'ensenado') { respuestaEnsenar(msg); return; }
+    if (msg.tipo === 'modo') { ponerModo(msg.modo); return; }
     if (msg.tipo === 'bienvenido') { conectado = true; esperandoOk = false; }
     // La PC está usando una foto subida: el celular deja de mandar hasta que la quiten
     if (msg.tipo === 'pausa') { pausaDePC = msg.texto || 'En pausa: la PC no usa la cámara.'; }
@@ -289,6 +302,7 @@ function dibujarMarcos() {
     capaMarcos.width = anchoCapa; capaMarcos.height = altoCapa;
   }
   ctxMarcos.clearRect(0, 0, anchoCapa, altoCapa);
+  dibujarToque(anchoCapa, altoCapa, escalaPantalla);
   // Si la PC dejó de mandar cajas hace más de 1 s, no se muestran marcos viejos
   if (!video.videoWidth || detenido || pausaDePC || performance.now() - horaCajas > 1000) return;
 
@@ -312,12 +326,12 @@ function dibujarMarcos() {
 setInterval(() => {
   fps = fotosEnUnSegundo; fotosEnUnSegundo = 0;
   if (codigoVencido) return;
-  if (avisoTemporal && performance.now() < avisoTemporal.hasta) return mostrar(avisoTemporal.texto);
+  if (avisoTemporal && performance.now() < avisoTemporal.hasta) return mostrar(avisoTemporal.texto, avisoTemporal.tipo);
   if (detenido) return mostrar('En pausa. Toca «Reanudar».');
   if (pausaDePC && conectado) return mostrar(pausaDePC);
   const vistos = performance.now() - horaCajas < 1000 ? cajas.length : 0;
   const textoPostits = vistos === 1 ? '1 Post-it' : vistos + ' Post-its';
-  if (conectado && flujo) mostrar('● Transmitiendo · ' + fps + ' fotos/s · ' + textoPostits, 'ok');
+  if (conectado && flujo) mostrar('● ' + fps + ' fotos/s · ' + textoPostits + ' · ' + NOMBRE_MODO[modoPC], 'ok');
   else if (conectado) mostrar('Conectado. Esperando la cámara…');
 }, 1000);
 
@@ -374,7 +388,86 @@ document.addEventListener('fullscreenchange', () => {
   btnGirar.textContent = document.fullscreenElement ? 'Volver a normal' : 'Girar a horizontal';
 });
 
-/* ---------- 10. Arranque ---------- */
+/* ---------- 10. Enseñar un Post-it tocándolo ----------
+   Con «Enseñar Post-it» prendido, tocar la imagen manda ese punto a la PC.
+   La PC mide el color del Post-it con la luz de ahora y lo agrega a los que busca.
+   El punto se manda en la foto ya derecha (la que recibe la PC).             */
+const btnEnsenar = document.getElementById('ensenar');
+const btnOlvidar = document.getElementById('olvidar');
+const guia = document.getElementById('guia');
+const vista = document.querySelector('.vista');
+let ensenando = false;
+let toque = null;   // { x, y (0 a 1 en el video sin girar), color, hasta }
+
+function ponerEnsenando(si) {
+  ensenando = si;
+  btnEnsenar.classList.toggle('on', si);
+  btnEnsenar.textContent = si ? 'Listo' : 'Enseñar Post-it';
+  guia.hidden = !si;
+}
+btnEnsenar.onclick = () => ponerEnsenando(!ensenando);
+btnOlvidar.onclick = () => {
+  if (!conectado) return avisar('Sin conexión con la PC.');
+  conexion.send(JSON.stringify({ tipo: 'olvidar-ensenados' }));
+};
+
+// Lo contrario de deshacerGiro: punto de la pantalla a punto de la foto girada
+function aplicarGiro(a, b, giro) {
+  if (giro === 90) return [1 - b, a];
+  if (giro === 180) return [1 - a, 1 - b];
+  if (giro === 270) return [b, 1 - a];
+  return [a, b];
+}
+
+vista.addEventListener('pointerdown', (e) => {
+  if (!ensenando || e.target.closest('button')) return;
+  if (!conectado) return avisar('Sin conexión con la PC.');
+  if (detenido || pausaDePC) return avisar('La cámara está en pausa.');
+  if (!video.videoWidth) return;
+  const caja = vista.getBoundingClientRect();
+  const escala = Math.min(caja.width / video.videoWidth, caja.height / video.videoHeight);
+  const anchoVideo = video.videoWidth * escala, altoVideo = video.videoHeight * escala;
+  const a = (e.clientX - caja.left - (caja.width - anchoVideo) / 2) / anchoVideo;
+  const b = (e.clientY - caja.top - (caja.height - altoVideo) / 2) / altoVideo;
+  if (a < 0 || a > 1 || b < 0 || b > 1) return avisar('Toca dentro de la imagen.');
+  const [x, y] = aplicarGiro(a, b, giroEnviado);
+  conexion.send(JSON.stringify({ tipo: 'ensenar', x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 }));
+  toque = { x: a, y: b, color: '#eab308', hasta: performance.now() + 2500 };
+  mostrar('Aprendiendo el color…');
+});
+
+function respuestaEnsenar(msg) {
+  avisar(msg.texto || (msg.ok ? 'Post-it aprendido' : 'No se pudo'), msg.ok ? 'ok' : 'mal');
+  if (toque) { toque.color = msg.ok ? '#22c55e' : '#ef4444'; toque.hasta = performance.now() + 1500; }
+}
+
+// Anillo donde se tocó: amarillo esperando, verde aprendido, rojo no se pudo
+function dibujarToque(anchoCapa, altoCapa, escalaPantalla) {
+  if (!toque || performance.now() > toque.hasta || !video.videoWidth) return;
+  const escala = Math.min(anchoCapa / video.videoWidth, altoCapa / video.videoHeight);
+  const anchoVideo = video.videoWidth * escala, altoVideo = video.videoHeight * escala;
+  const cx = (anchoCapa - anchoVideo) / 2 + toque.x * anchoVideo, cy = (altoCapa - altoVideo) / 2 + toque.y * altoVideo;
+  ctxMarcos.strokeStyle = toque.color;
+  ctxMarcos.lineWidth = 4 * escalaPantalla;
+  ctxMarcos.beginPath(); ctxMarcos.arc(cx, cy, 18 * escalaPantalla, 0, Math.PI * 2); ctxMarcos.stroke();
+}
+
+/* ---------- 11. Modo: con proyector o sin proyector ----------
+   El modo lo guarda la PC. Este botón le pide cambiarlo y la PC avisa cuál quedó. */
+const btnModo = document.getElementById('modo');
+const NOMBRE_MODO = { con: 'Con proyector', sin: 'Sin proyector' };
+let modoPC = 'con';
+function ponerModo(m) {
+  if (!NOMBRE_MODO[m]) return;
+  modoPC = m;
+  btnModo.textContent = 'Modo: ' + NOMBRE_MODO[m];
+}
+btnModo.onclick = () => {
+  if (!conectado) return avisar('Sin conexión con la PC.');
+  conexion.send(JSON.stringify({ tipo: 'cambiar-modo', modo: modoPC === 'con' ? 'sin' : 'con' }));
+};
+
+/* ---------- 12. Arranque ---------- */
 encenderCamara();
 mantenerEncendida();
 conectar();
