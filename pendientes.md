@@ -51,5 +51,26 @@ simulacion-final.js = grupo B nunca visto). Videos: simulacion-antes.mp4 y video
 - [ ] 25. Falsos con papel tapiz a rayas + luz cálida (10 falsos) y 1 falso en «escritorio con sombra»
 - [ ] Post-its quemados a blanco por exceso de luz: límite de la cámara (sin color no se pueden ver)
 - [x] 28. La app se prueba sola (opción A, solo con «Ajuste automático»): borde blanco en 2 destellos, hasta 3 intentos, aviso blanco si no logra; recuerda la corrección si el Post-it se pierde un momento. Prueba: recuadros corridos 8 % quedan en 1–2 % (PC y celular 350 ms, 3 de 3 corridas)
-- [ ] 29. Instalar Equalizer APO para subir el volumen del PC (cuando el usuario esté en el PC: pide marcar parlantes y reiniciar)
+- [x] 29. Equalizer APO 1.4.2 instalado en los parlantes (Realtek Speaker), +5 dB en C:/Program Files/EqualizerAPO/config/config.txt (original en config-original.txt)
+- [ ] Subir a GitHub/Render solo si el usuario lo autoriza
+
+## A transparencia (2026-11-07)
+
+- [x] 30. Tecla A y botón ☰ A: menú que se abre como H
+- [x] 31. Mide la luz sola, sin destellos, y dice «Listo, luz medida»
+- [x] 32. Imagen en vivo gris y transparente: se señala cada Post-it y la imagen se mueve sola hasta calzar
+- [x] 33. Mide cada Post-it solo; «¿Está correcto?»: se corrige con un marco, la imagen o sus esquinas
+- [x] 34. Sugiere de 6 a 8 lugares nuevos con buena luz; si hay menos, lo avisa
+- [x] 35. Si se mueve la cámara, se reajusta con los Post-its señalados, sin destellos; si ve menos de 3, pide A
+- [x] 36. Se quitó: destellos, 3 intentos, «Se prueba sola», «Ajuste automático», «Ajustar ahora», 4 esquinas de antes, «Superponer Cámara», «Enseñar Post-it» (PC y celular)
+- [x] 37. Todo dentro de cambios; index.html sin tocar
+- [x] Pruebas con cámara simulada: `C:\herramientas\pw\pruebas-posits\prueba-a-transparencia.js` y `prueba-a-otros.js`
+- [x] 38. Botón y tecla X: al cerrar A se ocultan las sugerencias; X muestra sugerencias + cámara transparente (sin barra de color ni pantalla de cámara dentro de A, descartadas)
+- [x] 39. Mini cámara en el menú A: 4 números para arrastrar y tocar Post-its para medirlos; señalar en la pared queda para afinar. Prueba: `prueba-a-mini.js`
+- [x] 40. Más fluido al pegar Post-its: fotos livianas del celular con la imagen a la vista, Post-it nuevo a los 250 ms, imagen redibujada cada 30 ms
+- [x] 43. Tocar Post-its en la mini cámara: la imagen crece sola (aproximada); toque en la pared o números mandan
+- [x] 42. Cámara del celular fluida: varias fotos en camino en vez de esperar cada respuesta
+- [x] 41. Imagen grande y mini cámara a color; transparencia mínima 55 % (por debajo de 45 % salen falsos en la simulación)
+- [ ] Probar en el aula con proyector, celular y Post-its de verdad
+- [ ] README.md de la raíz aún describe el ajuste de antes (filas «Ajuste automático», «Con proyector / Sin proyector» y «Enseñar un Post-it»): corregir antes de subir
 - [ ] Subir a GitHub/Render solo si el usuario lo autoriza

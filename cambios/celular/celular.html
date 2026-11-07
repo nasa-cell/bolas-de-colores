@@ -20,9 +20,8 @@
    7. Texto de estado
    8. Pantalla siempre encendida
    9. Botones
-  10. Enseñar un Post-it tocándolo
-  11. Modo: con proyector o sin proyector
-  12. Arranque
+  10. Modo: con proyector o sin proyector
+  11. Arranque
 -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -48,10 +47,6 @@
     border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .modo { grid-column: 1 / -1; background: #1e3a8a; border-color: #60a5fa; }
-  .ensenar.on { background: #1d4ed8; border-color: #60a5fa; }
-  .guia { position: absolute; left: 10px; right: 10px; bottom: 10px; text-align: center;
-    font: 700 14px inherit; font-family: inherit; padding: 9px 10px; border-radius: 8px;
-    background: rgba(29, 78, 216, .9); color: #fff; pointer-events: none; }
   .detener { grid-column: 1 / -1; background: #7f1d1d; border-color: #f43f5e; }
   .detener.reanudar { background: #065f46; border-color: #10b981; }
   .grande { position: absolute; inset: 0; margin: auto; width: 80%; height: 64px;
@@ -86,7 +81,6 @@
     <canvas id="marcos"></canvas>
     <div class="estado" id="estado">Conectando con la PC…</div>
     <button class="grande" id="permitir" hidden>Toca para usar la cámara</button>
-    <div class="guia" id="guia" hidden>Toca un Post-it que no tenga marco verde</div>
   </div>
   <div class="controles">
     <button id="cambiar">Cambiar cámara</button>
@@ -96,8 +90,6 @@
       <option value="640">Calidad: 480p</option>
     </select>
     <button id="girar">Girar a horizontal</button>
-    <button class="ensenar" id="ensenar">Enseñar Post-it</button>
-    <button id="olvidar">Olvidar enseñados</button>
     <button class="modo" id="modo">Modo: Con proyector</button>
     <button class="detener" id="detener">Detener</button>
   </div>
@@ -123,12 +115,14 @@ let conexion = null;         // WebSocket con la PC
 let conectado = false;
 let detenido = false;
 let codigoVencido = false;
-let esperandoOk = false;     // true mientras la PC no confirma la foto anterior
+let enCamino = 0;            // fotos mandadas que la PC aún no confirma
 let ultimoEnvio = 0;
 let fotosEnUnSegundo = 0, fps = 0;
 let candado = null;          // mantiene la pantalla encendida
 let avisoTemporal = null;    // texto corto que se muestra unos segundos
 let pausaDePC = null;        // texto si la PC pidió pausa (por ejemplo, usa una foto subida)
+let fotoRapida = false;      // la PC pidió fotos livianas: se están pegando Post-its y debe verse al momento
+const ANCHO_RAPIDO = 640;    // la PC busca los Post-its en 640: más no ayuda a verlos
 
 const lienzo = document.createElement('canvas'); // aquí se arma cada foto antes de mandarla
 const ctx = lienzo.getContext('2d');
@@ -168,15 +162,15 @@ function conectar() {
   conexion = new WebSocket(protocolo + location.host + '/ws?rol=celular&sala=' + encodeURIComponent(sala));
 
   conexion.onmessage = (e) => {
-    if (e.data === 'ok') { esperandoOk = false; return; } // la PC ya recibió la foto
+    if (e.data === 'ok') { enCamino = Math.max(0, enCamino - 1); return; } // la PC ya recibió una foto
     let msg; try { msg = JSON.parse(e.data); } catch (x) { return; }
     if (msg.tipo === 'cajas') { cajas = msg.c; giroDeCajas = giroEnviado; horaCajas = performance.now(); return; }
-    if (msg.tipo === 'ensenado') { respuestaEnsenar(msg); return; }
     if (msg.tipo === 'modo') { ponerModo(msg.modo); return; }
-    if (msg.tipo === 'bienvenido') { conectado = true; esperandoOk = false; }
+    if (msg.tipo === 'rapida') { fotoRapida = Boolean(msg.si); return; }
+    if (msg.tipo === 'bienvenido') { conectado = true; enCamino = 0; }
     // La PC está usando una foto subida: el celular deja de mandar hasta que la quiten
     if (msg.tipo === 'pausa') { pausaDePC = msg.texto || 'En pausa: la PC no usa la cámara.'; }
-    if (msg.tipo === 'seguir') { pausaDePC = null; esperandoOk = false; }
+    if (msg.tipo === 'seguir') { pausaDePC = null; enCamino = 0; }
     if (msg.tipo === 'error') { codigoVencido = true; mostrar(msg.texto, 'mal'); }
     if (msg.tipo === 'pc-fuera') { codigoVencido = true; mostrar('La PC cerró la app. Escanea el QR nuevo.', 'mal'); }
   };
@@ -238,18 +232,26 @@ function giroNecesario() {
 
 /* ---------- 5. Bucle: toma una foto (derecha) y la manda cuando la PC está lista ---------- */
 const MIN_MS_ENTRE_FOTOS = 50; // como máximo 20 fotos por segundo
+const MIN_MS_RAPIDO = 33;      // como máximo 30 con fotos livianas
+// Esperar la respuesta de cada foto limita a 1 foto por cada ida y vuelta de internet (4 por
+// segundo con 250 ms). Con varias en camino sale fluido, y si la subida no da abasto,
+// bufferedAmount frena el envío para que no se acumule retraso.
+const FOTOS_EN_CAMINO = 3, FOTOS_EN_CAMINO_RAPIDO = 5;
 let giroEnviado = 0;           // giro de la última foto mandada (para ubicar los marcos)
 
 function bucle() {
   setTimeout(bucle, 15);
   const ahora = performance.now();
   if (!conectado || detenido || pausaDePC || !flujo || video.readyState < 2) return;
-  if (esperandoOk && ahora - ultimoEnvio < 1500) return; // espera el "ok" (máx. 1,5 s por si se perdió)
-  if (ahora - ultimoEnvio < MIN_MS_ENTRE_FOTOS) return;
+  if (enCamino >= (fotoRapida ? FOTOS_EN_CAMINO_RAPIDO : FOTOS_EN_CAMINO)) {
+    if (ahora - ultimoEnvio < 1500) return; // espera los "ok" (máx. 1,5 s por si se perdieron)
+    enCamino = 0;
+  }
+  if (ahora - ultimoEnvio < (fotoRapida ? MIN_MS_RAPIDO : MIN_MS_ENTRE_FOTOS)) return;
   if (conexion.bufferedAmount > 0) return;               // todavía está saliendo la anterior
 
   // Tamaño según la calidad elegida, sin deformar
-  const anchoMax = Number(selCalidad.value);
+  const anchoMax = fotoRapida ? Math.min(ANCHO_RAPIDO, Number(selCalidad.value)) : Number(selCalidad.value);
   const escala = Math.min(1, anchoMax / Math.max(video.videoWidth, video.videoHeight));
   const w = Math.round(video.videoWidth * escala), h = Math.round(video.videoHeight * escala);
 
@@ -265,11 +267,11 @@ function bucle() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   giroEnviado = giro;
 
-  esperandoOk = true;
+  enCamino++;
   ultimoEnvio = ahora;
   lienzo.toBlob((foto) => {
     if (foto && conexion.readyState === 1) { conexion.send(foto); fotosEnUnSegundo++; }
-  }, 'image/jpeg', 0.7);
+  }, 'image/jpeg', fotoRapida ? 0.6 : 0.7);
 }
 
 /* ---------- 6. Marcos verdes: la PC avisa dónde vio Post-its y aquí se dibujan ---------- */
@@ -302,7 +304,6 @@ function dibujarMarcos() {
     capaMarcos.width = anchoCapa; capaMarcos.height = altoCapa;
   }
   ctxMarcos.clearRect(0, 0, anchoCapa, altoCapa);
-  dibujarToque(anchoCapa, altoCapa, escalaPantalla);
   // Si la PC dejó de mandar cajas hace más de 1 s, no se muestran marcos viejos
   if (!video.videoWidth || detenido || pausaDePC || performance.now() - horaCajas > 1000) return;
 
@@ -388,71 +389,7 @@ document.addEventListener('fullscreenchange', () => {
   btnGirar.textContent = document.fullscreenElement ? 'Volver a normal' : 'Girar a horizontal';
 });
 
-/* ---------- 10. Enseñar un Post-it tocándolo ----------
-   Con «Enseñar Post-it» prendido, tocar la imagen manda ese punto a la PC.
-   La PC mide el color del Post-it con la luz de ahora y lo agrega a los que busca.
-   El punto se manda en la foto ya derecha (la que recibe la PC).             */
-const btnEnsenar = document.getElementById('ensenar');
-const btnOlvidar = document.getElementById('olvidar');
-const guia = document.getElementById('guia');
-const vista = document.querySelector('.vista');
-let ensenando = false;
-let toque = null;   // { x, y (0 a 1 en el video sin girar), color, hasta }
-
-function ponerEnsenando(si) {
-  ensenando = si;
-  btnEnsenar.classList.toggle('on', si);
-  btnEnsenar.textContent = si ? 'Listo' : 'Enseñar Post-it';
-  guia.hidden = !si;
-}
-btnEnsenar.onclick = () => ponerEnsenando(!ensenando);
-btnOlvidar.onclick = () => {
-  if (!conectado) return avisar('Sin conexión con la PC.');
-  conexion.send(JSON.stringify({ tipo: 'olvidar-ensenados' }));
-};
-
-// Lo contrario de deshacerGiro: punto de la pantalla a punto de la foto girada
-function aplicarGiro(a, b, giro) {
-  if (giro === 90) return [1 - b, a];
-  if (giro === 180) return [1 - a, 1 - b];
-  if (giro === 270) return [b, 1 - a];
-  return [a, b];
-}
-
-vista.addEventListener('pointerdown', (e) => {
-  if (!ensenando || e.target.closest('button')) return;
-  if (!conectado) return avisar('Sin conexión con la PC.');
-  if (detenido || pausaDePC) return avisar('La cámara está en pausa.');
-  if (!video.videoWidth) return;
-  const caja = vista.getBoundingClientRect();
-  const escala = Math.min(caja.width / video.videoWidth, caja.height / video.videoHeight);
-  const anchoVideo = video.videoWidth * escala, altoVideo = video.videoHeight * escala;
-  const a = (e.clientX - caja.left - (caja.width - anchoVideo) / 2) / anchoVideo;
-  const b = (e.clientY - caja.top - (caja.height - altoVideo) / 2) / altoVideo;
-  if (a < 0 || a > 1 || b < 0 || b > 1) return avisar('Toca dentro de la imagen.');
-  const [x, y] = aplicarGiro(a, b, giroEnviado);
-  conexion.send(JSON.stringify({ tipo: 'ensenar', x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 }));
-  toque = { x: a, y: b, color: '#eab308', hasta: performance.now() + 2500 };
-  mostrar('Aprendiendo el color…');
-});
-
-function respuestaEnsenar(msg) {
-  avisar(msg.texto || (msg.ok ? 'Post-it aprendido' : 'No se pudo'), msg.ok ? 'ok' : 'mal');
-  if (toque) { toque.color = msg.ok ? '#22c55e' : '#ef4444'; toque.hasta = performance.now() + 1500; }
-}
-
-// Anillo donde se tocó: amarillo esperando, verde aprendido, rojo no se pudo
-function dibujarToque(anchoCapa, altoCapa, escalaPantalla) {
-  if (!toque || performance.now() > toque.hasta || !video.videoWidth) return;
-  const escala = Math.min(anchoCapa / video.videoWidth, altoCapa / video.videoHeight);
-  const anchoVideo = video.videoWidth * escala, altoVideo = video.videoHeight * escala;
-  const cx = (anchoCapa - anchoVideo) / 2 + toque.x * anchoVideo, cy = (altoCapa - altoVideo) / 2 + toque.y * altoVideo;
-  ctxMarcos.strokeStyle = toque.color;
-  ctxMarcos.lineWidth = 4 * escalaPantalla;
-  ctxMarcos.beginPath(); ctxMarcos.arc(cx, cy, 18 * escalaPantalla, 0, Math.PI * 2); ctxMarcos.stroke();
-}
-
-/* ---------- 11. Modo: con proyector o sin proyector ----------
+/* ---------- 10. Modo: con proyector o sin proyector ----------
    El modo lo guarda la PC. Este botón le pide cambiarlo y la PC avisa cuál quedó. */
 const btnModo = document.getElementById('modo');
 const NOMBRE_MODO = { con: 'Con proyector', sin: 'Sin proyector' };
@@ -467,7 +404,7 @@ btnModo.onclick = () => {
   conexion.send(JSON.stringify({ tipo: 'cambiar-modo', modo: modoPC === 'con' ? 'sin' : 'con' }));
 };
 
-/* ---------- 12. Arranque ---------- */
+/* ---------- 11. Arranque ---------- */
 encenderCamara();
 mantenerEncendida();
 conectar();

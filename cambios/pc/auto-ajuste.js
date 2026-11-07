@@ -1,189 +1,39 @@
 /*
-  AJUSTE AUTOMÁTICO (sin calibrar a mano)
-  ---------------------------------------
-  La cámara encuentra sola dónde cae la imagen del proyector, mide la luz del
-  salón y sigue a cada Post-it: pegas uno y aparece con su tamaño y en su lugar.
-
-  Cómo mide: el proyector muestra 12 cuadritos blancos sobre negro, luego todo
-  negro, y otra vez los cuadritos (en total 1 a 3 segundos). La cámara compara esas
-  imágenes: lo que se prendió y apagó son los cuadritos. Como la app sabe dónde
-  los dibujó, calcula sola las 4 esquinas. Funciona con webcam y con el celular
-  (espera a que llegue la imagen del celular antes de medir).
-
-  Lo carga index.html con una línea (después de los otros archivos de «cambios»).
-  Si se borra esa línea, la app vuelve a la calibración a mano de siempre.
-  En la consola (tecla H → Calibración) está el interruptor «Ajuste automático»:
-  apagado = modo manual, todo como antes.
+  SEGUIMIENTO DE POST-ITS Y LUZ
+  -----------------------------
+  Sigue a cada Post-it: pegas uno y aparece con su tamaño y en su lugar; separa los
+  pegados e ignora a la persona que pasa. Avisa cuando la cámara se mueve y cuida el
+  brillo de la imagen. El ajuste de la cámara lo hace la tecla A (a-transparencia.js),
+  que este archivo carga al final.
 
   Bloques:
-   1. Estado (prendido / apagado, se recuerda)
-   2. Capa de destellos (cuadritos y negro) y fotos de la cámara
-   3. Medir: encontrar los cuadritos y calcular las esquinas
-   4. Cuentas de la proyección (homografía con muchos puntos)
-   5. Cuándo medir: al empezar, al cambiar la ventana, si la cámara se mueve
-   6. Seguir Post-its: separar pegados, ignorar a la persona, aparecer y quitar
-   7. Luz: bolas más grandes con mucha luz y brillo de la cámara con poca
-   8. Interruptor y estado en la consola
+   1. Estado
+   2. Cuentas de la proyección (homografía con muchos puntos)
+   3. Arranque de la cámara y aviso si se mueve
+   4. Seguir Post-its: separar pegados, ignorar a la persona, aparecer y quitar
+   5. Luz: bolas más grandes con mucha luz y brillo de la cámara con poca
+   6. Modo sin proyector en la consola y avisos
 */
 (function () {
   'use strict';
   if (typeof ColorTracker === 'undefined' || typeof PhysicsEngine === 'undefined') return;
 
   /* ---------- 1. Estado ---------- */
-  const CLAVE = 'posits-auto-ajuste-v1';
-  let auto = true; // prendido por defecto
-  try { const g = localStorage.getItem(CLAVE); if (g !== null) auto = g === '1'; } catch (e) {}
-  window.autoAjusteActivo = auto;
+  window.autoAjusteActivo = true; // deteccion-colores.js lo usa para partir Post-its y tapar las bolas
 
   let tracker = null;   // detector de la app (se guarda en el primer cuadro)
   let fisica = null;    // motor de bolas de la app
-  let ajustando = false;
-  let ajustado = false; // ya se midió con la cámara actual
+  let ajustado = false; // ya hay un ajuste hecho con la tecla A (o modo sin proyector)
   let sinProyector = false; // se usa la imagen completa de la cámara como pantalla
-  // Modo elegido con los botones: 'con' (se ajusta a la proyección) o 'sin' (imagen completa)
   const CLAVE_MODO = 'posits-modo-proyector-v1';
   let modoProyector = 'con';
   try { if (localStorage.getItem(CLAVE_MODO) === 'sin') modoProyector = 'sin'; } catch (e) {}
-  let relojReintento = null;
-  let ultimoResultado = null;
-  let fallos = 0;
 
   const ahora = () => performance.now();
-  const esperar = ms => new Promise(r => setTimeout(r, ms));
   const hayFoto = () => !!(window.PuenteCamara && window.PuenteCamara.hayFoto && window.PuenteCamara.hayFoto());
 
-  /* ---------- 2. Capa de destellos y fotos de la cámara ---------- */
-  // 12 cuadritos en 4 columnas y 3 filas (proporción de la pantalla, 0 a 1)
-  const COLUMNAS = [0.07, 0.36, 0.64, 0.93];
-  const FILAS = [0.09, 0.5, 0.91];
-  const PUNTOS = [];
-  FILAS.forEach(y => COLUMNAS.forEach(x => PUNTOS.push({ x, y })));
-  const ESQ = [PUNTOS[0], PUNTOS[3], PUNTOS[11], PUNTOS[8]]; // sup-izq, sup-der, inf-der, inf-izq
-
-  const capa = document.createElement('canvas');
-  capa.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147483000;display:none;cursor:none';
-  document.body.appendChild(capa);
-  const cctx = capa.getContext('2d');
-
-  function dibujarCapa(conPuntos) {
-    const w = capa.width = window.innerWidth, h = capa.height = window.innerHeight;
-    cctx.fillStyle = '#000'; cctx.fillRect(0, 0, w, h);
-    // El texto sale igual en las dos imágenes, así no cuenta como cuadrito
-    cctx.fillStyle = '#3a3a3a'; cctx.font = '600 18px system-ui, sans-serif'; cctx.textAlign = 'center';
-    cctx.fillText('Ajustando la cámara… no tapes la pantalla', w / 2, h * 0.3);
-    if (!conPuntos) return;
-    const lado = Math.round(Math.min(w, h) * 0.055);
-    cctx.fillStyle = '#fff';
-    PUNTOS.forEach(p => cctx.fillRect(Math.round(p.x * w - lado / 2), Math.round(p.y * h - lado / 2), lado, lado));
-  }
-
-  // Foto de la cámara en blanco y negro, del mismo tamaño y espejo que usa el detector
-  const foto = document.createElement('canvas');
-  const fctx = foto.getContext('2d', { willReadFrequently: true });
-  function sacarFoto() {
-    const w = tracker.procWidth, h = tracker.procHeight;
-    if (foto.width !== w || foto.height !== h) { foto.width = w; foto.height = h; }
-    fctx.save();
-    if (tracker.flipX || tracker.flipY) {
-      fctx.translate(tracker.flipX ? w : 0, tracker.flipY ? h : 0);
-      fctx.scale(tracker.flipX ? -1 : 1, tracker.flipY ? -1 : 1);
-    }
-    fctx.drawImage(tracker.video, 0, 0, w, h);
-    fctx.restore();
-    const d = fctx.getImageData(0, 0, w, h).data;
-    const gris = new Uint8Array(w * h);
-    for (let i = 0, j = 0; j < gris.length; i += 4, j++) gris[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
-    return { w, h, gris };
-  }
-
-  // Parte de la imagen que cambió mucho entre dos fotos (0 a 1)
-  function cuantoCambio(a, b) {
-    if (!a || !b || a.gris.length !== b.gris.length) return 1;
-    let n = 0;
-    for (let i = 0; i < a.gris.length; i += 2) if (Math.abs(a.gris[i] - b.gris[i]) > 20) n++;
-    return n / (a.gris.length / 2);
-  }
-
-  // Espera a que la cámara muestre lo nuevo (el celular llega con retraso)
-  // y a que la imagen se quede quieta (la cámara ajusta su brillo sola).
-  async function esperarImagen(anterior, maximo) {
-    const inicio = ahora();
-    let previa = null, quietas = 0, cambio = !anterior;
-    while (ahora() - inicio < maximo) {
-      await esperar(70);
-      const f = sacarFoto();
-      if (!cambio) { if (cuantoCambio(f, anterior) > 0.003) cambio = true; else { previa = f; continue; } }
-      if (previa && cuantoCambio(f, previa) < 0.0015) quietas++; else quietas = 0;
-      previa = f;
-      if (quietas >= 2) return { f, ok: true };
-    }
-    return { f: previa || sacarFoto(), ok: cambio };
-  }
-
-  /* ---------- 3. Medir ---------- */
-  async function ajustar(motivo) {
-    if (ajustando || !auto || modoProyector !== 'con' || !listo()) return;
-    ajustando = true;
-    estado('Ajustando…');
-    try {
-      const antes = sacarFoto();
-      capa.style.display = 'block';
-      dibujarCapa(true);
-      const m1 = await esperarImagen(antes, 3000);
-      // La cámara no notó el destello: no mira la pantalla. No vale la pena seguir.
-      if (!m1.ok) { capa.style.display = 'none'; fallo(); return; }
-      dibujarCapa(false);
-      const negro = await esperarImagen(m1.f, 3000);
-      dibujarCapa(true);
-      const m2 = await esperarImagen(negro.f, 3000);
-      capa.style.display = 'none';
-
-      const r = (m1.ok && negro.ok) ? calcular(m1.f, m2.f, negro.f) : null;
-      if (!r) { fallo(); return; }
-      tracker.mapper.srcCorners = r.esquinas;
-      tracker.mapper.computeHomography();
-      ultimoResultado = r;
-      ajustado = true; fallos = 0; sinProyector = false;
-      ponerLuz(r.contraste);
-      reiniciarSeguimiento();
-      prepararVigilancia();
-      pintarVista();
-      const luzTxt = r.contraste < 0.3 ? 'mucha' : r.contraste < 0.5 ? 'media' : 'poca';
-      estado(`Listo · ${r.usados} de 12 puntos · error ${(r.error * 100).toFixed(1).replace('.', ',')} % · luz del salón: ${luzTxt}`);
-      aviso(motivo === 'movida' ? 'La cámara se movió: ya me ajusté sola' : 'Cámara ajustada sola');
-    } catch (e) {
-      console.warn('Ajuste automático:', e);
-      fallo();
-    } finally {
-      capa.style.display = 'none';
-      ajustando = false;
-    }
-  }
-
-  // Modo «Con proyector»: si la cámara no ve la pantalla, se avisa y se reintenta cada 10 s,
-  // como máximo 3 intentos. Después para, hasta que se toque «Ajustar ahora», «Con proyector»
-  // o se cambie de cámara. Nunca pasa solo a «Sin proyector»: eso se elige con el botón.
-  const INTENTOS_MAX = 3;
-  function fallo() {
-    fallos++;
-    clearTimeout(relojReintento);
-    if (fallos >= INTENTOS_MAX) {
-      // Tras 3 intentos se apaga el ajuste automático: para volver a probar hay que prenderlo
-      ponerAuto(false, true);
-      estado(`No vi la pantalla en ${INTENTOS_MAX} intentos: apagué el ajuste automático. Préndelo para intentar de nuevo.`);
-      aviso(`No vi la pantalla en ${INTENTOS_MAX} intentos: apagué el ajuste automático. Préndelo para intentar de nuevo`, 8000);
-      return;
-    }
-    estado(`No veo la pantalla (intento ${fallos} de ${INTENTOS_MAX}). Apunta la cámara a la proyección: lo intento de nuevo en 10 s.`);
-    aviso('No veo la pantalla: apunta la cámara a la proyección', 5000);
-    relojReintento = setTimeout(() => {
-      if (auto && modoProyector === 'con' && !ajustado && !ajustando) ajustar('reintento');
-    }, 10000);
-  }
-
-  // Modo «Sin proyector»: toda la imagen de la cámara es la pantalla, sin destellos.
+  // Modo «Sin proyector»: toda la imagen de la cámara es la pantalla.
   function usarImagenCompleta() {
-    clearTimeout(relojReintento);
     sinProyector = true;
     ajustado = true;
     if (!tracker) return;
@@ -194,104 +44,7 @@
     estado('Sin proyector: uso la imagen completa de la cámara.');
   }
 
-  // Encuentra los cuadritos: lo que está prendido en las fotos con puntos y apagado en la negra
-  function calcular(m1, m2, negro) {
-    const { w, h } = negro, n = w * h;
-    const dif = new Uint8Array(n);
-    const hist = new Uint32Array(256);
-    for (let i = 0; i < n; i++) {
-      const v = Math.max(0, ((m1.gris[i] + m2.gris[i]) >> 1) - negro.gris[i]);
-      dif[i] = v; hist[v]++;
-    }
-    // Lo más brillante (0,2 % de la imagen) marca cuánto se prenden los cuadritos
-    let acum = 0, alto = 255;
-    for (let v = 255; v > 0; v--) { acum += hist[v]; if (acum > n * 0.002) { alto = v; break; } }
-    if (alto < 18) return null; // casi no cambió nada: la cámara no ve la proyección
-    const umbral = Math.max(14, alto * 0.45);
-
-    // Manchas prendidas (grupos de pixeles vecinos)
-    const visto = new Uint8Array(n);
-    const manchas = [];
-    for (let i = 0; i < n; i++) {
-      if (visto[i] || dif[i] < umbral) continue;
-      let area = 0, sx = 0, sy = 0, sp = 0, x0 = w, x1 = 0, y0 = h, y1 = 0;
-      const pila = [i]; visto[i] = 1;
-      while (pila.length) {
-        const j = pila.pop(), x = j % w, y = (j / w) | 0, p = dif[j];
-        area++; sx += x * p; sy += y * p; sp += p;
-        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-        if (x + 1 < w && !visto[j + 1] && dif[j + 1] >= umbral) { visto[j + 1] = 1; pila.push(j + 1); }
-        if (x > 0 && !visto[j - 1] && dif[j - 1] >= umbral) { visto[j - 1] = 1; pila.push(j - 1); }
-        if (y + 1 < h && !visto[j + w] && dif[j + w] >= umbral) { visto[j + w] = 1; pila.push(j + w); }
-        if (y > 0 && !visto[j - w] && dif[j - w] >= umbral) { visto[j - w] = 1; pila.push(j - w); }
-      }
-      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-      if (area < 4 || area > n * 0.02 || bw / bh > 3 || bh / bw > 3) continue;
-      // Centro pesado por el brillo: más preciso que un pixel
-      manchas.push({ x: (sx / sp + 0.5) / w, y: (sy / sp + 0.5) / h, fuerza: sp / area, area, fondo: negro.gris[((sy / sp) | 0) * w + ((sx / sp) | 0)] });
-    }
-    if (manchas.length < 4) return null;
-    manchas.sort((a, b) => b.area * b.fuerza - a.area * a.fuerza);
-    const lista = manchas.slice(0, 16);
-
-    // Las 4 de las puntas: sup-izq tiene x+y mínimo, inf-der máximo, etc.
-    const pick = f => lista.reduce((m, p) => (f(p) > f(m) ? p : m), lista[0]);
-    const puntas = [pick(p => -(p.x + p.y)), pick(p => p.x - p.y), pick(p => p.x + p.y), pick(p => p.y - p.x)];
-    if (new Set(puntas).size < 4) return null;
-    let H = homografia(puntas, ESQ);
-    if (!H) return null;
-
-    // Cada mancha se lleva al cuadrito esperado más cercano
-    let pares = emparejar(lista, H, 0.12);
-    if (pares.length < 4) return null;
-    H = homografia(pares.map(p => p.cam), pares.map(p => p.pro)) || H;
-    // Se quitan las que no calzan y se vuelve a calcular
-    pares = emparejar(lista, H, 0.03);
-    if (pares.length < 4) return null;
-    H = homografia(pares.map(p => p.cam), pares.map(p => p.pro));
-    if (!H) return null;
-
-    let suma = 0;
-    pares.forEach(p => { const q = aplicar(H, p.cam.x, p.cam.y); suma += Math.hypot(q.x - p.pro.x, q.y - p.pro.y); });
-    const error = suma / pares.length;
-    if (error > 0.02) return null;
-
-    const inv = invertir(H);
-    if (!inv) return null;
-    const esquinas = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => aplicar(inv, x, y));
-    if (!esquinas.every(c => isFinite(c.x) && isFinite(c.y) && Math.abs(c.x) < 5 && Math.abs(c.y) < 5)) return null;
-    // Con pocos puntos el cálculo siempre cuadra aunque sean reflejos (la luz de la pantalla
-    // en la cara o la pared). Se piden 8 de 12 y una pantalla con forma de cuadrilátero de verdad.
-    if (pares.length < 8) return null;
-    let giro = 0, area = 0;
-    for (let k = 0; k < 4; k++) {
-      const a = esquinas[k], b = esquinas[(k + 1) % 4], c = esquinas[(k + 2) % 4];
-      const z = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
-      giro += Math.sign(z); area += a.x * b.y - b.x * a.y;
-    }
-    if (Math.abs(giro) !== 4) return null;          // se cruza o está doblado
-    if (Math.abs(area) / 2 < 0.04) return null;      // la pantalla ocupa muy poco de la imagen
-
-    const fuerzas = pares.map(p => p.cam.fuerza).sort((a, b) => a - b);
-    const fondos = pares.map(p => p.cam.fondo).sort((a, b) => a - b);
-    const fuerza = fuerzas[fuerzas.length >> 1], fondo = fondos[fondos.length >> 1];
-    // contraste: qué tanto se nota la luz del proyector frente a la luz del salón
-    const contraste = fuerza / Math.max(1, fuerza + fondo);
-    return { esquinas, usados: pares.length, error, contraste };
-  }
-
-  function emparejar(manchas, H, distMax) {
-    const mejor = new Map();
-    for (const m of manchas) {
-      const q = aplicar(H, m.x, m.y);
-      let k = -1, d = Infinity;
-      PUNTOS.forEach((p, i) => { const e = Math.hypot(q.x - p.x, q.y - p.y); if (e < d) { d = e; k = i; } });
-      if (d < distMax && (!mejor.has(k) || mejor.get(k).d > d)) mejor.set(k, { cam: m, pro: PUNTOS[k], d });
-    }
-    return [...mejor.values()];
-  }
-
-  /* ---------- 4. Cuentas de la proyección ----------
+  /* ---------- 2. Cuentas de la proyección ----------
      Homografía: la fórmula que lleva un punto de la cámara a la pantalla del
      proyector. Con más de 4 puntos se usa la que mejor calza con todos.     */
   function homografia(desde, hasta) {
@@ -346,38 +99,37 @@
     return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map(v => v / det);
   }
 
-  /* ---------- 5. Cuándo medir ---------- */
+  /* ---------- 3. Arranque de la cámara y aviso si se mueve ---------- */
   function listo() {
     return tracker && tracker.isStreaming && !tracker.demoMode && tracker.video.readyState >= 2 && !hayFoto();
   }
 
-  let streamVisto = null, tamVisto = '', desdeListo = 0;
+  // Cámara nueva o celular girado: a-transparencia.js decide si recupera el ajuste o empieza de cero
+  let streamVisto = null, tamVisto = '';
   function revisarArranque() {
-    if (!auto || ajustando || !listo()) { desdeListo = 0; return; }
+    if (!listo()) return;
     const tam = tracker.procWidth + 'x' + tracker.procHeight;
-    // Cámara nueva o celular girado: se vuelve a medir
-    if (tracker.stream !== streamVisto || tam !== tamVisto) {
-      if (streamVisto && tam !== tamVisto && ajustado) aviso('La imagen de la cámara cambió: me ajusto de nuevo');
-      streamVisto = tracker.stream; tamVisto = tam; ajustado = false; sinProyector = false; fallos = 0; desdeListo = ahora();
-    }
-    if (!ajustado && fallos === 0 && desdeListo && ahora() - desdeListo > 1200) {
-      desdeListo = 0;
-      if (modoProyector === 'sin') usarImagenCompleta(); else ajustar('inicio');
-    }
+    if (tracker.stream === streamVisto && tam === tamVisto) return;
+    const primera = !streamVisto;
+    streamVisto = tracker.stream; tamVisto = tam;
+    if (modoProyector === 'sin') { usarImagenCompleta(); return; }
+    sinProyector = false;
+    window.dispatchEvent(new CustomEvent('posits-camara-lista', { detail: { primera, tam } }));
   }
 
   // Si cambia el tamaño de la ventana (pantalla completa, tecla F), la imagen cae en otro lugar
   let relojVentana = null;
   window.addEventListener('resize', () => {
-    if (!auto) return;
     clearTimeout(relojVentana);
-    relojVentana = setTimeout(() => { if (ajustado && !sinProyector && !ajustando) ajustar('ventana'); }, 900);
+    relojVentana = setTimeout(() => {
+      if (ajustado && !sinProyector) window.dispatchEvent(new CustomEvent('posits-ventana-cambio'));
+    }, 900);
   });
 
   // Pantalla completa al iniciar (el navegador solo deja hacerlo al tocar un botón)
   const botonInicio = document.getElementById('startCameraBtn');
   if (botonInicio) botonInicio.addEventListener('click', () => {
-    if (auto && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {});
     }
   }, true);
@@ -404,7 +156,7 @@
   let referencia = null, refDesde = 0, sospechas = 0, cambiosTotales = 0;
   function prepararVigilancia() { referencia = null; refDesde = ahora() + 1500; sospechas = 0; cambiosTotales = 0; }
   setInterval(() => {
-    if (!auto || !ajustado || sinProyector || ajustando || !listo() || ahora() < refDesde) return;
+    if (!ajustado || sinProyector || !listo() || ahora() < refDesde) return;
     const g = imagenChica();
     if (!referencia) { referencia = g; return; }
     const e0 = errorCorrido(referencia, g, 0, 0);
@@ -416,13 +168,19 @@
     let grandes = 0;
     for (let i = 0; i < g.length; i++) if (Math.abs(g[i] - referencia[i]) > 22) grandes++;
     cambiosTotales = grandes / g.length > 0.55 ? cambiosTotales + 1 : 0;
-    if (sospechas >= 3 || cambiosTotales >= 4) { ajustar('movida'); return; }
+    if (sospechas >= 3 || cambiosTotales >= 4) {
+      prepararVigilancia();
+      window.dispatchEvent(new CustomEvent('posits-camara-movida'));
+      return;
+    }
     // Cambios chicos de luz: la referencia se actualiza de a poco
     if (e0 < 3) for (let i = 0; i < g.length; i++) referencia[i] = referencia[i] * 0.9 + g[i] * 0.1;
   }, 500);
 
-  /* ---------- 6. Seguir Post-its ---------- */
+  /* ---------- 4. Seguir Post-its ---------- */
   const ESPERA_APARECER = 500;   // ms quieto para aparecer
+  const ESPERA_APARECER_RAPIDO = 250; // igual, mientras se están pegando Post-its con la imagen a la vista
+  let rapido = false;
   const ESPERA_QUITAR = 700;     // ms sin verlo para quitarlo
   const TAPADO_MAX = 30000;      // si alguien lo tapa, se guarda hasta 30 s
   const AREA_MAX = 0.05;         // más de 5 % de la pantalla no es un Post-it (ropa, cartel)
@@ -431,14 +189,14 @@
   let confirmarYa = 0;
   let previaMov = null, movimiento = null;
 
-  function reiniciarSeguimiento() { pistas = []; confirmarYa = ahora() + 1200; previaMov = null; correccionesVistas = []; }
-  // Correcciones que ya salieron bien, por lugar: si un Post-it se pierde un momento (lo tapa
-  // una bola o una mano) y vuelve, arranca con la misma corrección en vez de quedar corrido.
-  let correccionesVistas = [];
-  function correccionCerca(d) {
-    const cx = d.x + d.width / 2, cy = d.y + d.height / 2;
-    const c = correccionesVistas.find(o => Math.abs(o.x - cx) < d.width && Math.abs(o.y - cy) < d.height);
-    return c ? Object.assign({}, c.corr) : null;
+  function reiniciarSeguimiento() { pistas = []; confirmarYa = ahora() + 1200; previaMov = null; }
+
+  // Marcos corregidos a mano en el paso «¿está correcto?»: valen para el Post-it de ese lugar
+  let ajustesMarco = [];
+  function conMarco(p) {
+    const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
+    const k = ajustesMarco.find(o => Math.abs(o.x - cx) < p.width && Math.abs(o.y - cy) < p.height);
+    return { x: p.x + (k ? k.dx : 0), y: p.y + (k ? k.dy : 0), width: p.width, height: p.height };
   }
 
   // Qué partes de la imagen se movieron desde el cuadro anterior (persona, brazo)
@@ -605,7 +363,7 @@
           // todavía se está moviendo (lo están pegando). En la mano tiembla un poco: se tolera más.
           if (dist > (sinProyector ? 0.06 : 0.02) || seMueve) mejor.desde = t;
           Object.assign(mejor, { x: d.x, y: d.y, width: d.width, height: d.height, corners: d.corners, color: d.color });
-          if (t - mejor.desde >= ESPERA_APARECER || t < confirmarYa) { mejor.confirmado = true; mejor.revisar = true; }
+          if (t - mejor.desde >= (rapido ? ESPERA_APARECER_RAPIDO : ESPERA_APARECER) || t < confirmarYa) mejor.confirmado = true;
         } else if (!sinProyector && d.width * d.height < mejor.width * mejor.height * 0.7 && !d.partida) {
           // Se ve más chico y no es porque se separaron: lo están tapando en parte. Se deja como estaba.
           continue;
@@ -620,7 +378,7 @@
         }
       } else if (!seMueve || sinProyector) {
         pistas.push({ x: d.x, y: d.y, width: d.width, height: d.height, corners: d.corners, color: d.color,
-          desde: t, ultimaVez: t, confirmado: t < confirmarYa, revisar: true, corr: correccionCerca(d), visto: true, tapadoDesde: 0, anillo: brilloAlrededor(d) });
+          desde: t, ultimaVez: t, confirmado: t < confirmarYa, visto: true, tapadoDesde: 0, anillo: brilloAlrededor(d) });
       }
     }
 
@@ -648,30 +406,24 @@
     pistas = pistas.filter((p, i) => !pistas.some((o, j) => j !== i && o.confirmado && p.confirmado &&
       solape(p, o) > 0.5 && (o.width * o.height < p.width * p.height || (o.width * o.height === p.width * p.height && j > i))));
 
-    return pistas.filter(p => p.confirmado).map(p => Object.assign(conCorreccion(p), {
+    return pistas.filter(p => p.confirmado).map(p => Object.assign(conMarco(p), {
       corners: p.corners, color: p.color, lifetime: 1, missCount: 0
     }));
   }
 
-  // Se reemplaza el suavizado de la app por el seguimiento (solo en automático)
+  // Se reemplaza el suavizado de la app por el seguimiento
   const suavizarOriginal = ColorTracker.prototype.smoothObstacles;
   ColorTracker.prototype.smoothObstacles = function (nuevas) {
-    if (!auto || this.demoMode) return suavizarOriginal.call(this, nuevas);
+    if (this.demoMode) return suavizarOriginal.call(this, nuevas);
     tracker = this;
     this.obstacles = seguir(nuevas || []);
   };
 
-  // Cada cuadro: guardar el detector, no detectar mientras se mide, brillo y
-  // sin las compensaciones a mano (en automático no hacen falta; se guardan para el manual)
+  // Cada cuadro: guardar el detector, brillo y sin las compensaciones a mano (ya no hacen falta)
   const procesarAnterior = ColorTracker.prototype.processFrame;
   ColorTracker.prototype.processFrame = function () {
     tracker = this;
-    if (!auto) {
-      if (this.procCtx.filter !== 'none') this.procCtx.filter = 'none';
-      return procesarAnterior.call(this);
-    }
     revisarArranque();
-    if (ajustando) return this.obstacles || [];
     medirBrillo(this);
     marcarBolas(this);
     const guardado = [this.manualOffsetX, this.manualOffsetY, this.manualScaleX, this.manualScaleY, this.sizeOffset];
@@ -720,299 +472,19 @@
   }
 
 
-  /* ---------- 7b. Se prueba sola ----------
-     Cuando aparece un Post-it nuevo, cuando se toca uno («Enseñar») o cuando la cámara
-     se movió (todos vuelven a aparecer), la app revisa que su recuadro caiga justo encima:
-      - Con proyector: proyecta un borde blanco fino sobre el recuadro (2 destellos cortos), la cámara
-        mira dónde cayó ese borde y lo compara con el papel. Si está corrido, lo mueve.
-      - Sin proyector: busca los bordes del papel en la imagen y los compara con el recuadro.
-     Hasta 3 intentos; si no lo logra, aviso abajo para que lo toquen otra vez.
-     La corrección se guarda en cada Post-it como bordes de más o de menos (en proporción
-     de su tamaño), así sigue valiendo aunque el recuadro tiemble un poco.            */
-  const INTENTOS_REVISAR = 3;
-  const TOLERANCIA = 0.08;      // borde corrido menos de 8 % del tamaño del Post-it = está bien
-  const BORDE_MS = 250;         // lo mínimo que se ve cada destello del borde de prueba
-  const BORDE_MAX_MS = 900;     // lo máximo (el celular llega con retraso)
-  let revisando = false;
-  let retrasoCamara = 300;      // lo que tarda la cámara en mostrar un cambio (se va midiendo)
-
-  function conCorreccion(p) {
-    const k = p.corr || { l: 0, t: 0, r: 0, b: 0 };
-    return { x: p.x + k.l * p.width, y: p.y + k.t * p.height,
-      width: p.width * (1 + k.r - k.l), height: p.height * (1 + k.b - k.t) };
-  }
-
-  // Capa transparente solo para el borde de prueba (encima de todo, no tapa lo demás)
-  const capaBorde = document.createElement('canvas');
-  capaBorde.id = 'aaBordePrueba';
-  capaBorde.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147482500;display:none;pointer-events:none';
-  document.body.appendChild(capaBorde);
-
-  function dibujarBorde(caja) {
-    const w = capaBorde.width = window.innerWidth, h = capaBorde.height = window.innerHeight;
-    const g = capaBorde.getContext('2d');
-    g.clearRect(0, 0, w, h);
-    g.strokeStyle = '#fff'; g.lineWidth = Math.max(3, Math.round(Math.min(w, h) * 0.006));
-    g.strokeRect(caja.x * w, caja.y * h, caja.width * w, caja.height * h);
-  }
-
-  // Caja de la pantalla → lados en la foto de la cámara (en pixeles de la foto).
-  // Se usa el punto medio de cada lado: la cámara suele mirar de costado y el
-  // Post-it se ve torcido; en el medio del lado eso casi no cambia la medida.
-  function aCamara(caja, w, h) {
-    const inv = tracker.mapper.invMatrix;
-    const mx = caja.x + caja.width / 2, my = caja.y + caja.height / 2;
-    return { x0: aplicar(inv, caja.x, my).x * w, x1: aplicar(inv, caja.x + caja.width, my).x * w,
-             y0: aplicar(inv, mx, caja.y).y * h, y1: aplicar(inv, mx, caja.y + caja.height).y * h };
-  }
-
-  // Con proyector: dónde cayó el borde blanco en la cámara (o null si no se vio).
-  // El borde se prende 2 veces cortas con una pausa: solo cuenta lo que se prendió las
-  // 2 veces y estaba apagado antes y en la pausa. Las bolas que caen no cumplen eso y
-  // las que están quietas se anulan solas.
-  // El borde se dibuja un poco más afuera del recuadro (MARGEN) para no caer encima del
-  // marco blanco que la app ya dibuja en cada Post-it; al medir se descuenta ese margen.
-  const MARGEN = 0.15;
-  async function medirBorde(cajaReal) {
-    const caja = { x: cajaReal.x - cajaReal.width * MARGEN, y: cajaReal.y - cajaReal.height * MARGEN,
-                   width: cajaReal.width * (1 + 2 * MARGEN), height: cajaReal.height * (1 + 2 * MARGEN) };
-    const off1 = sacarFoto();
-    const { w, h } = off1;
-    const esp = aCamara(caja, w, h);                  // donde debería caer
-    const an = esp.x1 - esp.x0, al = esp.y1 - esp.y0;
-    if (an < 4 || al < 4) return null;
-    const zona = [Math.max(0, Math.floor(esp.x0 - an * 0.6)), Math.min(w - 1, Math.ceil(esp.x1 + an * 0.6)),
-                  Math.max(0, Math.floor(esp.y0 - al * 0.6)), Math.min(h - 1, Math.ceil(esp.y1 + al * 0.6))];
-    dibujarBorde(caja);
-    try {
-      const on1 = await destelloBorde(off1, esp, true);
-      if (!on1) return null;
-      const off2 = await destelloBorde(on1, esp, false);
-      if (!off2) return null;
-      const on2 = await destelloBorde(off2, esp, true);
-      if (!on2) return null;
-      const r = lados([off1, off2], [on1, on2], w, zona);
-      if (!r) return null;
-      // Se descuenta el margen: lo corrido que cayó el borde grande es lo corrido del recuadro
-      const real = aCamara(cajaReal, w, h);
-      return { x0: real.x0 + r.x0 - esp.x0, x1: real.x1 + r.x1 - esp.x1, y0: real.y0 + r.y0 - esp.y0, y1: real.y1 + r.y1 - esp.y1 };
-    } finally {
-      // La cámara (sobre todo el celular) muestra el borde un rato después de apagarlo:
-      // se espera ese retraso para que la próxima foto «antes» salga limpia.
-      capaBorde.style.display = 'none';
-      await esperar(Math.min(BORDE_MAX_MS, retrasoCamara + 120));
-    }
-  }
-
-  // Prende (o apaga) el borde y espera a que la cámara lo muestre: devuelve esa foto.
-  // Cuenta como visto solo si cambió a lo largo de al menos la mitad del contorno esperado
-  // (una bola que cae cambia un puntito, no un contorno).
-  async function destelloBorde(previa, esp, prender) {
-    capaBorde.style.display = prender ? 'block' : 'none';
-    const inicio = ahora(), { w, h } = previa;
-    const an = esp.x1 - esp.x0, al = esp.y1 - esp.y0, banda = Math.max(3, Math.round(Math.max(an, al) * 0.45));
-    const puntos = [];
-    for (let k = 1; k < 20; k++) {
-      const fx = esp.x0 + an * k / 20, fy = esp.y0 + al * k / 20;
-      puntos.push([fx, esp.y0, 0, 1], [fx, esp.y1, 0, 1], [esp.x0, fy, 1, 0], [esp.x1, fy, 1, 0]);
-    }
-    let vista = null, visto = 0;
-    while (ahora() - inicio < BORDE_MAX_MS + 200) {
-      await esperar(50);
-      const f = sacarFoto();
-      let tocados = 0;
-      for (const [px, py, dx, dy] of puntos) {
-        for (let k = -banda; k <= banda; k++) {
-          const x = Math.round(px + dx * k), y = Math.round(py + dy * k);
-          if (x < 0 || y < 0 || x >= w || y >= h) continue;
-          const d = f.gris[y * w + x] - previa.gris[y * w + x];
-          if (prender ? d > 25 : d < -25) { tocados++; break; }
-        }
-      }
-      // Se toma una foto un poco después de verlo por primera vez: la primera puede venir a medias
-      if (tocados >= puntos.length * 0.5) {
-        if (!vista) { retrasoCamara = retrasoCamara * 0.5 + (ahora() - inicio) * 0.5; visto = ahora(); }
-        vista = f; if (ahora() - visto >= 110 && (!prender || ahora() - inicio >= BORDE_MS)) break;
-      } else if (vista) { vista = null; }
-    }
-    return vista;
-  }
-
-  function lados(apagadas, prendidas, w, [xa, xb, ya, yb]) {
-    // Cuánto se prendió cada punto: lo menos que subió entre las fotos prendidas y apagadas
-    const dif = new Int16Array(w * (yb + 1));
-    let alto = 0;
-    for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) {
-      const i = y * w + x;
-      const v = Math.min(prendidas[0].gris[i], prendidas[1].gris[i]) - Math.max(apagadas[0].gris[i], apagadas[1].gris[i]);
-      dif[i] = v; if (v > alto) alto = v;
-    }
-    if (alto < 18) return null;
-    const umbral = Math.max(12, alto * 0.4);
-    const prendido = (x, y) => dif[y * w + x] >= umbral;
-    // Paso 1: más o menos dónde quedó el cuadrado prendido (sin los puntos sueltos)
-    const xs = [], ys = [];
-    for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) if (prendido(x, y)) { xs.push(x); ys.push(y); }
-    if (xs.length < 12) return null;
-    const corte = (v, q) => { v.sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(v.length * q))]; };
-    const r0 = { x0: corte(xs, 0.03), x1: corte(xs, 0.97), y0: corte(ys, 0.03), y1: corte(ys, 0.97) };
-    const an = r0.x1 - r0.x0, al = r0.y1 - r0.y0;
-    if (an < 4 || al < 4) return null;
-    // Paso 2: cada lado como línea: la columna (o fila) con más puntos prendidos, cerca de ahí
-    const linea = (centro, vertical) => {
-      const [d0, d1] = vertical ? [Math.max(xa, Math.round(centro - an * 0.25)), Math.min(xb, Math.round(centro + an * 0.25))]
-                                : [Math.max(ya, Math.round(centro - al * 0.25)), Math.min(yb, Math.round(centro + al * 0.25))];
-      const [a0, a1] = vertical ? [Math.round(r0.y0 + al * 0.2), Math.round(r0.y1 - al * 0.2)]
-                                : [Math.round(r0.x0 + an * 0.2), Math.round(r0.x1 - an * 0.2)];
-      const cuenta = [];
-      for (let k = d0; k <= d1; k++) { let c = 0; for (let j = a0; j <= a1; j++) if (vertical ? prendido(k, j) : prendido(j, k)) c++; cuenta.push(c); }
-      let mk = -1, mc = 0;
-      for (let k = 0; k < cuenta.length; k++) { const c = (cuenta[k - 1] || 0) + cuenta[k] * 2 + (cuenta[k + 1] || 0); if (c > mc) { mc = c; mk = k; } }
-      return mk >= 0 && mc >= Math.max(6, (a1 - a0 + 1) * 0.6) ? d0 + mk + 0.5 : NaN;
-    };
-    const r = { x0: linea(r0.x0, true), x1: linea(r0.x1, true), y0: linea(r0.y0, false), y1: linea(r0.y1, false) };
-    return [r.x0, r.x1, r.y0, r.y1].every(isFinite) ? r : null;
-  }
-
-  // Sin proyector: bordes del papel en la imagen, buscando dónde cambia el color
-  // desde el centro hacia afuera, en 5 líneas por lado.
-  function medirPapel(caja) {
-    const w = tracker.procWidth, h = tracker.procHeight;
-    const d = tracker.procCtx.getImageData(0, 0, w, h).data;
-    const r = aCamara(caja, w, h);
-    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2, an = r.x1 - r.x0, al = r.y1 - r.y0;
-    if (an < 6 || al < 6) return null;
-    const px = (x, y) => {
-      x = Math.round(x); y = Math.round(y);
-      if (x < 0 || y < 0 || x >= w || y >= h) return null;
-      const i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]];
-    };
-    // Color del papel: promedio del centro
-    const s = [0, 0, 0]; let n = 0;
-    for (let y = cy - al * 0.2; y <= cy + al * 0.2; y += 2) for (let x = cx - an * 0.2; x <= cx + an * 0.2; x += 2) {
-      const c = px(x, y); if (c) { s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; }
-    }
-    if (!n) return null;
-    const papel = s.map(v => v / n);
-    const lejos = c => !c || Math.hypot(c[0] - papel[0], c[1] - papel[1], c[2] - papel[2]) > 55;
-    const mediana = v => { const o = v.filter(isFinite).sort((a, b) => a - b); return o.length >= 3 ? o[o.length >> 1] : NaN; };
-    // Primer punto donde ya no es papel (2 seguidos, para no frenar en una manchita)
-    const buscar = (x, y, dx, dy, max) => {
-      for (let k = 1; k < max; k++) if (lejos(px(x + dx * k, y + dy * k)) && lejos(px(x + dx * (k + 1), y + dy * (k + 1)))) return k;
-      return NaN;
-    };
-    const lineas = [-0.3, -0.15, 0, 0.15, 0.3];
-    const izq = mediana(lineas.map(f => cx - buscar(cx, cy + f * al, -1, 0, an)));
-    const der = mediana(lineas.map(f => cx + buscar(cx, cy + f * al, 1, 0, an)));
-    const arr = mediana(lineas.map(f => cy - buscar(cx + f * an, cy, 0, -1, al)));
-    const aba = mediana(lineas.map(f => cy + buscar(cx + f * an, cy, 0, 1, al)));
-    if (![izq, der, arr, aba].every(isFinite)) return null;
-    return { x0: izq + 1, x1: der, y0: arr + 1, y1: aba };
-  }
-
-  function nombreColor(hex) {
-    if (!hex || hex[0] !== '#') return '';
-    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16));
-    const max = Math.max(r, g, b), min = Math.min(r, g, b), dd = max - min;
-    if (!dd) return '';
-    let t = max === r ? ((g - b) / dd) % 6 : max === g ? (b - r) / dd + 2 : (r - g) / dd + 4;
-    t = (t * 60 + 360) % 360;
-    return t < 20 || t >= 330 ? 'rosado' : t < 45 ? 'naranja' : t < 70 ? 'amarillo' : t < 160 ? 'verde' : t < 250 ? 'celeste' : t < 290 ? 'lila' : 'rosado';
-  }
-
-  async function revisar(p) {
-    revisando = true;
-    try {
-      // Hasta 3 correcciones. Una medida dudosa (no se vio el borde o salió de otro tamaño)
-      // no cuenta como intento, pero no se prueba más de 6 veces en total.
-      let intento = 0, medidas = 0;
-      while (intento < INTENTOS_REVISAR && medidas < INTENTOS_REVISAR * 2) {
-        medidas++;
-        if (!pistas.includes(p) || ajustando) return;
-        const caja = conCorreccion(p);
-        const w = tracker.procWidth, h = tracker.procHeight;
-        // Dónde está el papel en la cámara y dónde cae (o se calcula) el recuadro
-        const papel = sinProyector ? medirPapel(p) : aCamara(p, w, h);
-        const cae = sinProyector ? aCamara(caja, w, h) : await medirBorde(caja);
-        // El borde proyectado tiene el mismo tamaño que el papel aunque caiga corrido:
-        // si salió muy distinto, la cámara vio otra cosa (una bola, una sombra) y se repite.
-        const parecido = (a, b) => Math.abs(a - b) <= Math.max(3, b * 0.2);
-        const dudosa = !papel || !cae || (!sinProyector && !(parecido(cae.x1 - cae.x0, papel.x1 - papel.x0) && parecido(cae.y1 - cae.y0, papel.y1 - papel.y0)));
-        if (dudosa) { (p.historial = p.historial || []).push({ dudosa: true, cae: cae && [cae.x0, cae.x1, cae.y0, cae.y1].map(Math.round) }); p.historial = p.historial.slice(-6); await esperar(150); continue; }
-        intento++;
-        const an = papel.x1 - papel.x0, al = papel.y1 - papel.y0;
-        // Con proyector el borde tiene el tamaño del recuadro: lo que importa es cuánto cayó corrido
-        // (se usa el promedio de los 2 lados, así un lado tapado por una bola pesa la mitad).
-        // Sin proyector se compara cada borde del papel con el recuadro.
-        const err = sinProyector
-          ? [(cae.x0 - papel.x0) / an, (cae.y0 - papel.y0) / al, (cae.x1 - papel.x1) / an, (cae.y1 - papel.y1) / al]
-          : [(cae.x0 + cae.x1 - papel.x0 - papel.x1) / 2 / an, (cae.y0 + cae.y1 - papel.y0 - papel.y1) / 2 / al];
-        p.ultimoError = Math.max(...err.map(Math.abs));
-        (p.historial = p.historial || []).push({ papel: [papel.x0, papel.x1, papel.y0, papel.y1].map(Math.round), cae: [cae.x0, cae.x1, cae.y0, cae.y1].map(Math.round), error: +p.ultimoError.toFixed(3) });
-        p.historial = p.historial.slice(-6); // registro corto de los intentos (para revisar desde la consola)
-        if (p.ultimoError < TOLERANCIA) {
-          p.revisar = false; p.revisado = intento;
-          const cx = p.x + p.width / 2, cy = p.y + p.height / 2;
-          correccionesVistas = correccionesVistas.filter(o => Math.abs(o.x - cx) >= p.width || Math.abs(o.y - cy) >= p.height);
-          if (p.corr) correccionesVistas.push({ x: cx, y: cy, corr: Object.assign({}, p.corr) });
-          return;
-        }
-        // Se corre cada borde lo que le falta, medido en la pantalla
-        const M = tracker.mapper;
-        const pant = (x, y) => M.transform(x / w, y / h);
-        const my = (papel.y0 + papel.y1) / 2, mx = (papel.x0 + papel.x1) / 2;
-        const k = p.corr || { l: 0, t: 0, r: 0, b: 0 };
-        // Se corrige el 90 % de lo medido: así llega sin pasarse aunque la medida tiemble
-        const SUAVE = 0.9;
-        const d = {
-          l: (pant(papel.x0, my).x - pant(cae.x0, my).x) / p.width, r: (pant(papel.x1, my).x - pant(cae.x1, my).x) / p.width,
-          t: (pant(mx, papel.y0).y - pant(mx, cae.y0).y) / p.height, b: (pant(mx, papel.y1).y - pant(mx, cae.y1).y) / p.height };
-        if (!sinProyector) { d.l = d.r = (d.l + d.r) / 2; d.t = d.b = (d.t + d.b) / 2; }   // solo se corre, no cambia de tamaño
-        for (const lado of ['l', 't', 'r', 'b']) k[lado] += SUAVE * d[lado];
-        // Nunca más de medio Post-it de corrección por lado
-        for (const lado of ['l', 't', 'r', 'b']) k[lado] = Math.max(-0.5, Math.min(0.5, k[lado]));
-        p.corr = k;
-        await esperar(120);
-      }
-      if (!pistas.includes(p)) return;
-      p.revisar = false; p.revisado = 0;
-      const nombre = nombreColor(p.color);
-      aviso(`No pude ajustar el Post-it${nombre ? ' ' + nombre : ''}, tócalo otra vez`, 4000, 'blanco');
-    } catch (e) {
-      console.warn('Revisión del Post-it:', e);
-      p.revisar = false;
-    } finally {
-      revisando = false;
-    }
-  }
-
-  // Revisa de a un Post-it, cuando está quieto y nadie lo tapa
-  setInterval(() => {
-    if (!auto || !ajustado || ajustando || revisando || !listo() || !tracker || !tracker.mapper.invMatrix) return;
-    const p = pistas.find(q => q.confirmado && q.revisar && !q.tapadoDesde && (sinProyector || partesMovidas(q, 1) < 0.1));
-    if (p) revisar(p);
-  }, 250);
-
-  // Al tocar un Post-it («Enseñar»): se vuelve a revisar el que está ahí (nx, ny: imagen de la cámara)
-  function revisarEn(nx, ny) {
-    if (!tracker || !tracker.mapper.matrix) return;
-    const q = tracker.mapper.transform(nx, ny);
-    const p = pistas.find(o => q.x >= o.x && q.x <= o.x + o.width && q.y >= o.y && q.y <= o.y + o.height);
-    if (p) { p.revisar = true; p.corr = null; }
-  }
-
-  /* ---------- 7. Luz ---------- */
+  /* ---------- 5. Luz ---------- */
   let factorLuz = 1, radioBase = null, radioPuesto = null;
-  function ponerLuz(contraste) {
-    // Con mucha luz en el salón la proyección se ve lavada: bolas más grandes y borde más grueso
-    factorLuz = contraste < 0.3 ? 1.6 : contraste < 0.5 ? 1.3 : 1;
+  function ponerLuz(brillo) {
+    // Con mucha luz en el salón la proyección se ve lavada: bolas más grandes y borde más grueso.
+    // brillo: promedio de 0 a 255 de lo que ve la cámara.
+    factorLuz = brillo > 200 ? 1.6 : brillo > 160 ? 1.3 : 1;
   }
 
   const actualizarAnterior = PhysicsEngine.prototype.update;
   PhysicsEngine.prototype.update = function (obstaculos, tiempo) {
     fisica = this;
     if (radioPuesto === null || this.ballRadius !== radioPuesto) radioBase = this.ballRadius; // lo cambió el control
-    const quiero = auto ? Math.round(radioBase * factorLuz) : radioBase;
+    const quiero = Math.round(radioBase * factorLuz);
     this.ballRadius = radioPuesto = quiero;
     return actualizarAnterior.call(this, obstaculos, tiempo);
   };
@@ -1020,7 +492,7 @@
   const marcosAnterior = PhysicsEngine.prototype.drawStickerHighlights;
   PhysicsEngine.prototype.drawStickerHighlights = function (obstaculos) {
     marcosAnterior.call(this, obstaculos);
-    if (!auto || factorLuz <= 1) return;
+    if (factorLuz <= 1) return;
     this.ctx.save();
     this.ctx.strokeStyle = 'rgba(255,255,255,0.95)';
     this.ctx.lineWidth = 2.5 * factorLuz;
@@ -1057,31 +529,22 @@
     t.procCtx.filter = ganancia > 1.02 ? `brightness(${ganancia.toFixed(2)})` : 'none';
   }
 
-  /* ---------- 8. Interruptor y estado en la consola ---------- */
+  /* ---------- 6. Modo sin proyector en la consola y avisos ---------- */
   document.head.insertAdjacentHTML('beforeend', `<style>
     .aa-caja { border: 1px solid var(--accent-cyan, #38bdf8); border-radius: 8px; padding: 12px; margin-bottom: 14px; }
-    .aa-caja .btn { width: 100%; margin-top: 8px; }
     .aa-estado { font-size: 12px; margin-top: 8px; color: var(--text-secondary, #94a3b8); }
-    .aa-apagado { opacity: .4; pointer-events: none; }
-    .aa-modo { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
-    .aa-modo button { font: 600 12px var(--font-main, system-ui); padding: 9px 4px; border-radius: 6px; cursor: pointer;
-      border: 1px solid var(--border-subtle, #334155); background: var(--bg-card, #1e293b); color: var(--text-secondary, #cbd5e1); }
-    .aa-modo button.on { border-color: var(--accent-cyan, #38bdf8); color: var(--accent-cyan, #38bdf8); background: rgba(56,189,248,.12); }
-    .aa-modo button:disabled { opacity: .4; cursor: default; }
     .aa-aviso { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 2147482000;
       background: rgba(15,23,42,.92); color: #fff; font: 600 15px system-ui, sans-serif; padding: 10px 18px;
       border-radius: 10px; max-width: min(92vw, 640px); text-align: center; opacity: 0; transition: opacity .3s; pointer-events: none; }
     .aa-aviso.ver { opacity: 1; }
-    .aa-aviso.blanco { background: #fff; color: #1d4ed8; border: 2px solid #3b82f6; }
   </style>`);
 
   const cartel = document.createElement('div');
   cartel.className = 'aa-aviso';
   document.body.appendChild(cartel);
   let relojCartel = null;
-  function aviso(texto, ms = 3500, tipo) {
+  function aviso(texto, ms = 3500) {
     cartel.textContent = texto; cartel.classList.add('ver');
-    cartel.classList.toggle('blanco', tipo === 'blanco');
     clearTimeout(relojCartel); relojCartel = setTimeout(() => cartel.classList.remove('ver'), ms);
   }
 
@@ -1090,15 +553,10 @@
   caja.className = 'control-group aa-caja';
   caja.innerHTML = `
     <div class="toggle-row">
-      <label for="autoAjusteToggle">Ajuste automático</label>
-      <input type="checkbox" id="autoAjusteToggle" class="switch-input" ${auto ? 'checked' : ''}>
+      <label for="sinProyectorToggle">Sin proyector</label>
+      <input type="checkbox" id="sinProyectorToggle" class="switch-input" ${modoProyector === 'sin' ? 'checked' : ''}>
     </div>
-    <span class="field-hint">La cámara encuentra sola dónde cae la proyección, mide la luz y sigue a los Post-its. Apágalo para usar las 4 esquinas a mano (modo manual).</span>
-    <div class="aa-modo" id="aaModo">
-      <button type="button" data-modo="con">Con proyector</button>
-      <button type="button" data-modo="sin">Sin proyector</button>
-    </div>
-    <button type="button" id="autoAjusteAhora" class="btn btn-primary">Ajustar ahora</button>
+    <span class="field-hint">Usa la imagen completa de la cámara en la pantalla de la PC. Con proyector, el ajuste se hace con la tecla A.</span>
     <div class="aa-estado" id="autoAjusteEstado">Esperando la cámara…</div>`;
   if (pestana) {
     const intro = pestana.querySelector('.section-intro');
@@ -1107,64 +565,29 @@
   const textoEstado = caja.querySelector('#autoAjusteEstado');
   function estado(t) { textoEstado.textContent = t; }
 
-  const partesManuales = pestana ? [...pestana.querySelectorAll('.corner-selector-row, .button-row, .fine-tuning-box, .calibration-preview-container')] : [];
-  function mostrarModo() {
-    partesManuales.forEach(el => el.classList.toggle('aa-apagado', auto));
-    caja.querySelector('#autoAjusteAhora').disabled = !auto || modoProyector !== 'con';
-    caja.querySelectorAll('#aaModo button').forEach(b => {
-      b.classList.toggle('on', b.dataset.modo === modoProyector);
-      b.disabled = !auto;
-    });
-    if (!auto) estado('Modo manual: mueve las 4 esquinas como antes.');
+  // Las 4 esquinas de antes y «Superponer Cámara»: ahora todo eso se hace con la tecla A
+  if (pestana) {
+    pestana.querySelectorAll('.corner-selector-row, .button-row, .fine-tuning-box, .calibration-preview-container')
+      .forEach(el => { el.style.display = 'none'; });
+    const superponer = document.getElementById('liveCameraWallToggle');
+    const grupo = superponer && superponer.closest('.control-group');
+    if (grupo) grupo.style.display = 'none';
   }
 
-  // Cambia entre «Con proyector» y «Sin proyector» (botones de la consola o del celular)
+  // Cambia entre con proyector y sin proyector (consola o botón «Modo» del celular)
   function cambiarModo(nuevo) {
     if (nuevo !== 'con' && nuevo !== 'sin') nuevo = modoProyector === 'con' ? 'sin' : 'con';
     modoProyector = nuevo;
     try { localStorage.setItem(CLAVE_MODO, nuevo); } catch (x) {}
-    // Elegir «Con proyector» (también desde el celular) vuelve a prender el ajuste automático
-    if (nuevo === 'con' && !auto) ponerAuto(true, true);
-    clearTimeout(relojReintento);
-    if (auto) {
-      if (nuevo === 'sin') usarImagenCompleta();
-      else {
-        ajustado = false; sinProyector = false; fallos = 0;
-        if (tracker) tracker.mapper.resetCorners();
-        reiniciarSeguimiento();
-        estado('Ajustando…');
-        if (listo()) ajustar('boton'); else desdeListo = ahora();
-      }
-    }
-    mostrarModo();
+    caja.querySelector('#sinProyectorToggle').checked = nuevo === 'sin';
+    if (nuevo === 'sin') usarImagenCompleta();
+    else { sinProyector = false; ajustado = false; reiniciarSeguimiento(); estado('Con proyector: ajusta con la tecla A.'); }
     aviso(nuevo === 'con' ? 'Con proyector' : 'Sin proyector: uso la imagen completa de la cámara');
     window.dispatchEvent(new CustomEvent('posits-modo', { detail: nuevo }));
   }
-  caja.querySelectorAll('#aaModo button').forEach(b => b.addEventListener('click', () => cambiarModo(b.dataset.modo)));
+  caja.querySelector('#sinProyectorToggle').addEventListener('change', (e) => cambiarModo(e.target.checked ? 'sin' : 'con'));
 
-  // Prende o apaga el ajuste automático (interruptor, botón del celular o tras 3 intentos fallidos)
-  function ponerAuto(valor, callado) {
-    clearTimeout(relojReintento);
-    auto = valor;
-    caja.querySelector('#autoAjusteToggle').checked = valor;
-    window.autoAjusteActivo = auto;
-    try { localStorage.setItem(CLAVE, auto ? '1' : '0'); } catch (x) {}
-    pistas = [];
-    if (tracker) { tracker.obstacles = []; tracker.procCtx.filter = 'none'; }
-    if (auto) { ajustado = false; sinProyector = false; fallos = 0; desdeListo = ahora(); estado('Ajustando…'); }
-    mostrarModo();
-    if (!callado) aviso(auto ? 'Ajuste automático prendido' : 'Modo manual');
-  }
-  caja.querySelector('#autoAjusteToggle').addEventListener('change', (e) => ponerAuto(e.target.checked));
-  caja.querySelector('#autoAjusteAhora').addEventListener('click', () => {
-    fallos = 0;
-    if (modoProyector !== 'con') { aviso('«Ajustar ahora» es para el modo «Con proyector»'); return; }
-    if (!listo()) { aviso(hayFoto() ? 'Con una foto subida no se puede medir: quita la foto primero' : 'Primero inicia la cámara'); return; }
-    ajustar('boton');
-  });
-  mostrarModo();
-
-  // Vista previa de la consola: la imagen de la cámara con el cuadro que se midió
+  // Vista previa de la consola: la imagen de la cámara con el cuadro del ajuste
   function pintarVista() {
     const lienzo = document.getElementById('calibrationCanvas');
     if (!lienzo || !tracker) return;
@@ -1177,16 +600,45 @@
     c.closePath(); c.stroke();
   }
 
-  // Para revisar desde la consola del navegador
+  // Lo que usa a-transparencia.js (y para revisar desde la consola del navegador)
   window.AutoAjuste = {
-    ajustar: () => ajustar('boton'),
     modo: () => modoProyector,
     cambiarModo,
+    aviso,
+    ponerEstado: estado,
     paso: () => ultimoPaso,
-    revisarEn,
-    revisarTodos: () => pistas.forEach(p => { p.revisar = true; }),
-    revisiones: () => pistas.filter(p => p.confirmado).map(p => ({ revisar: !!p.revisar, revisado: p.revisado, error: p.ultimoError, corr: p.corr, historial: (p.historial || []).slice(-6) })),
-    estado: () => ({ auto, modo: modoProyector, ajustado, sinProyector, ajustando, fallos, resultado: ultimoResultado, factorLuz, ganancia, pistas: pistas.length,
+    detector: () => tracker,
+    camaraLista: listo,
+    mates: { homografia, aplicar, invertir },
+    imagenChica,
+    tamChica: { w: CH_W, h: CH_H },
+    ponerLuz,
+    // Pone la fórmula cámara → pantalla en la app
+    ponerMatriz(H) {
+      const inv = invertir(H);
+      if (!inv) return false;
+      const esquinas = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => aplicar(inv, x, y));
+      if (!esquinas.every(c => isFinite(c.x) && isFinite(c.y) && Math.abs(c.x) < 20 && Math.abs(c.y) < 20)) return false;
+      tracker.mapper.srcCorners = esquinas;
+      tracker.mapper.computeHomography();
+      pintarVista();
+      return true;
+    },
+    reiniciarSeguimiento,
+    // Con la imagen a la vista importa más la rapidez: el celular manda fotos más livianas
+    ponerRapido(si) {
+      if (rapido === si) return;
+      rapido = si;
+      window.dispatchEvent(new CustomEvent('posits-camara-rapida', { detail: si }));
+    },
+    marcarAjustado(si) { ajustado = si; if (si) prepararVigilancia(); },
+    ponerAjustesMarco(lista) { ajustesMarco = lista; },
+    estado: () => ({ modo: modoProyector, ajustado, sinProyector, factorLuz, ganancia, pistas: pistas.length,
       postits: tracker ? (tracker.obstacles || []).map(o => ({ x: o.x, y: o.y, w: o.width, h: o.height })) : [] })
   };
+
+  // La función de la tecla A va en su propio archivo, junto a este
+  const guion = document.createElement('script');
+  guion.src = 'cambios/pc/a-transparencia.js';
+  document.body.appendChild(guion);
 })();

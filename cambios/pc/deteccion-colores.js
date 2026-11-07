@@ -153,6 +153,7 @@
       c.muestra = lista[c.color].muestra;
       c.colorReal = colorReal(datos, w, h, c, lista);
     });
+    window.CajasCamara = cajas; // a-transparencia.js busca aquí el Post-it señalado
 
     // 3e. Desde aquí, todo igual que la app: pasar a coordenadas del proyector,
     //     suavizar el movimiento y dibujar la vista previa.
@@ -487,8 +488,7 @@
       <div class="vc-colores" id="vcColores"></div>
       <p class="vc-nota">Toca un color para prenderlo o apagarlo. «Clonar Color de Tarjeta» agrega un color nuevo.</p>
       <label style="margin-top:12px">Post-its enseñados:</label>
-      <p class="vc-nota">¿No ve un Post-it? Tócalo en el video de arriba (o en el celular con «Enseñar Post-it»).
-        La app aprende su color con la luz de ahora.</p>
+      <p class="vc-nota">¿No ve un Post-it? Aprieta la tecla A y señálalo: la app aprende su color con la luz de ahora.</p>
       <div class="vc-colores" id="vcEnsenados"></div>
       <button type="button" class="vc-color on" id="vcOlvidar" style="margin-top:6px;width:100%;justify-content:center">Olvidar los enseñados</button>
     </div>`;
@@ -561,9 +561,9 @@
     guardar(); dibujarBotones();
   });
 
-  /* ---------- 6. Enseñar un Post-it tocándolo ----------
-     Se toca el Post-it en el video (consola o celular). Desde ese punto se
-     pinta hacia afuera mientras el color se parezca al tocado: así se mide
+  /* ---------- 6. Aprender el color de un Post-it señalado ----------
+     Lo usa la tecla A (a-transparencia.js) cuando no ve el Post-it señalado.
+     Desde ese punto de la imagen se pinta hacia afuera mientras el color se parezca al tocado: así se mide
      el Post-it entero con la luz de ahora y se guarda un color nuevo con su
      rango. Si el rango también agarra la pared o la pantalla, se angosta; si
      no se puede, se avisa y no se guarda nada.                               */
@@ -684,8 +684,6 @@
     }
     guardar(); dibujarBotones();
     ultimoToque = { x: nx, y: ny, bien: true, hasta: performance.now() + 1500 };
-    // La app vuelve a probar sola que el recuadro de ese Post-it caiga justo (auto-ajuste.js)
-    if (window.AutoAjuste && window.AutoAjuste.revisarEn) window.AutoAjuste.revisarEn(nx, ny);
     return { ok: true, texto };
   }
 
@@ -713,21 +711,20 @@
     clearTimeout(relojAviso); relojAviso = setTimeout(() => { avisoE.style.display = 'none'; }, 3500);
   }
 
-  // Tocar el video de la consola. En «varios colores» la pipeta original no sirve,
-  // así que el toque enseña el Post-it y no llega a la pipeta.
+  // Tocar el video de la consola. En «varios colores» la pipeta original no sirve:
+  // los Post-its se señalan con la tecla A.
   const videoConsola = document.getElementById('cameraFeedCanvas');
   if (videoConsola) videoConsola.addEventListener('click', (e) => {
     if (estado.modo !== 'varios') return;
     e.stopImmediatePropagation();
-    const caja = videoConsola.getBoundingClientRect();
-    avisarPC(ensenarEn((e.clientX - caja.left) / caja.width, (e.clientY - caja.top) / caja.height));
+    avisarPC({ ok: true, texto: 'Para señalar Post-its, aprieta la tecla A.' });
   }, true);
   document.getElementById('vcOlvidar').onclick = () => { olvidarEnsenados(); avisarPC({ ok: true, texto: 'Post-its enseñados olvidados' }); };
 
-  // Para el celular (puente-celular.js) y para probar desde la consola del navegador.
+  // Para a-transparencia.js y para probar desde la consola del navegador.
   // x, y van de 0 a 1 en la imagen que procesa la app (ya con el espejo aplicado).
   window.EnsenarPostit = {
-    tocar(x, y) { const r = ensenarEn(x, y); avisarPC(r); return r; },
+    aprender: ensenarEn,
     olvidar() { olvidarEnsenados(); avisarPC({ ok: true, texto: 'Post-its enseñados olvidados' }); },
     lista: () => estado.ensenados.slice()
   };

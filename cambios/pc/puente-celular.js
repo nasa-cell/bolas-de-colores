@@ -145,6 +145,13 @@
   // Cuando cambia el modo (en la PC o en el celular), el celular muestra el nuevo
   window.addEventListener('posits-modo', (e) => avisarCelular({ tipo: 'modo', modo: e.detail }));
 
+  // Con la imagen a la vista, el celular manda fotos más livianas para que lleguen antes
+  let camaraRapida = false;
+  window.addEventListener('posits-camara-rapida', (e) => {
+    camaraRapida = e.detail;
+    avisarCelular({ tipo: 'rapida', si: camaraRapida });
+  });
+
   window.PuenteCamara = {
     // Pone una imagen (ya cargada) como cámara
     ponerFoto(imagen) {
@@ -378,24 +385,14 @@
         celularConectado = true;
         if (window.AutoAjuste && window.AutoAjuste.modo) avisarCelular({ tipo: 'modo', modo: window.AutoAjuste.modo() });
         if (fotoPuesta) avisarCelular({ tipo: 'pausa', texto: 'En pausa: la PC está usando una foto.' });
+        if (camaraRapida) avisarCelular({ tipo: 'rapida', si: true });
         primeraFoto = false;
         ocultarAviso();
         estadoVentana('● Celular conectado. Recibiendo imagen…', 'ok');
       }
-      // El celular tocó un Post-it para enseñarlo (x, y de 0 a 1 en la foto que mandó)
-      if (msg.tipo === 'ensenar' && window.EnsenarPostit) {
-        const x = trackerApp && trackerApp.flipX ? 1 - msg.x : msg.x;
-        const y = trackerApp && trackerApp.flipY ? 1 - msg.y : msg.y;
-        const r = window.EnsenarPostit.tocar(x, y);
-        avisarCelular({ tipo: 'ensenado', ok: r.ok, texto: r.texto });
-      }
       // Botón «Modo» del celular: cambia entre «Con proyector» y «Sin proyector»
       if (msg.tipo === 'cambiar-modo' && window.AutoAjuste && window.AutoAjuste.cambiarModo) {
         window.AutoAjuste.cambiarModo(msg.modo);
-      }
-      if (msg.tipo === 'olvidar-ensenados' && window.EnsenarPostit) {
-        window.EnsenarPostit.olvidar();
-        avisarCelular({ tipo: 'ensenado', ok: true, texto: 'Post-its enseñados olvidados' });
       }
       if (msg.tipo === 'celular-fuera') {
         celularConectado = false;
@@ -421,7 +418,10 @@
 
   async function recibirFoto(foto) {
     if (fotoPuesta) return;     // hay una foto subida: la imagen del celular no se usa
-    if (dibujando) return;      // si llegan dos juntas, se salta la vieja
+    if (dibujando) {            // si llegan dos juntas, se salta una, pero se confirma igual
+      if (conexion && conexion.readyState === 1) conexion.send('ok');
+      return;
+    }
     dibujando = true;
     try {
       const imagen = await createImageBitmap(foto);
