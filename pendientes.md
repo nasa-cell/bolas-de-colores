@@ -69,6 +69,7 @@ simulacion-final.js = grupo B nunca visto). Videos: simulacion-antes.mp4 y video
 - [x] 39. Mini cámara en el menú A: 4 números para arrastrar y tocar Post-its para medirlos; señalar en la pared queda para afinar. Prueba: `prueba-a-mini.js`
 - [x] 40. Más fluido al pegar Post-its: fotos livianas del celular con la imagen a la vista, Post-it nuevo a los 250 ms, imagen redibujada cada 30 ms
 - [x] 43. Tocar Post-its en la mini cámara: la imagen crece sola (aproximada); toque en la pared o números mandan
+- [x] 44. Fotos en camino según la red medida: más fotos con buena red, sin acumular retraso con subida lenta
 - [x] 42. Cámara del celular fluida: varias fotos en camino en vez de esperar cada respuesta
 - [x] 41. Imagen grande y mini cámara a color; transparencia mínima 55 % (por debajo de 45 % salen falsos en la simulación)
 - [ ] Probar en el aula con proyector, celular y Post-its de verdad

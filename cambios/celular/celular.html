@@ -162,15 +162,19 @@ function conectar() {
   conexion = new WebSocket(protocolo + location.host + '/ws?rol=celular&sala=' + encodeURIComponent(sala));
 
   conexion.onmessage = (e) => {
-    if (e.data === 'ok') { enCamino = Math.max(0, enCamino - 1); return; } // la PC ya recibió una foto
+    if (e.data === 'ok') { fotoConfirmada(); return; } // la PC ya recibió una foto
     let msg; try { msg = JSON.parse(e.data); } catch (x) { return; }
     if (msg.tipo === 'cajas') { cajas = msg.c; giroDeCajas = giroEnviado; horaCajas = performance.now(); return; }
     if (msg.tipo === 'modo') { ponerModo(msg.modo); return; }
-    if (msg.tipo === 'rapida') { fotoRapida = Boolean(msg.si); return; }
-    if (msg.tipo === 'bienvenido') { conectado = true; enCamino = 0; }
+    if (msg.tipo === 'rapida') {
+      if (fotoRapida !== Boolean(msg.si)) { mejorIdaVuelta = Infinity; idaVuelta = 0; fotosEnCamino = 3; } // otro peso de foto: se vuelve a medir
+      fotoRapida = Boolean(msg.si);
+      return;
+    }
+    if (msg.tipo === 'bienvenido') { conectado = true; reiniciarEnvio(); }
     // La PC está usando una foto subida: el celular deja de mandar hasta que la quiten
     if (msg.tipo === 'pausa') { pausaDePC = msg.texto || 'En pausa: la PC no usa la cámara.'; }
-    if (msg.tipo === 'seguir') { pausaDePC = null; enCamino = 0; }
+    if (msg.tipo === 'seguir') { pausaDePC = null; reiniciarEnvio(); }
     if (msg.tipo === 'error') { codigoVencido = true; mostrar(msg.texto, 'mal'); }
     if (msg.tipo === 'pc-fuera') { codigoVencido = true; mostrar('La PC cerró la app. Escanea el QR nuevo.', 'mal'); }
   };
@@ -233,21 +237,50 @@ function giroNecesario() {
 /* ---------- 5. Bucle: toma una foto (derecha) y la manda cuando la PC está lista ---------- */
 const MIN_MS_ENTRE_FOTOS = 50; // como máximo 20 fotos por segundo
 const MIN_MS_RAPIDO = 33;      // como máximo 30 con fotos livianas
-// Esperar la respuesta de cada foto limita a 1 foto por cada ida y vuelta de internet (4 por
-// segundo con 250 ms). Con varias en camino sale fluido, y si la subida no da abasto,
-// bufferedAmount frena el envío para que no se acumule retraso.
-const FOTOS_EN_CAMINO = 3, FOTOS_EN_CAMINO_RAPIDO = 5;
+// Esperar la respuesta de cada foto limita a 1 foto por cada ida y vuelta de internet, así que
+// se dejan varias en camino. Cuántas se decide midiendo: si las respuestas empiezan a tardar
+// más que lo normal, la subida ya no da abasto y se mandan menos, porque las fotos en cola
+// atrasan la imagen. bufferedAmount no sirve para notarlo: el sistema acepta varias fotos antes
+// de que suba. Además se reparten en el tiempo para que no lleguen a golpes.
+const FOTOS_EN_CAMINO_MAX = 8, FOTOS_EN_CAMINO_MAX_RAPIDO = 14;
+const MARGEN_DEMORA = 120;     // ms sobre la mejor ida y vuelta que ya cuentan como cola
+let fotosEnCamino = 3;         // cuántas se permiten ahora
+let idaVuelta = 0;             // ida y vuelta promedio, en ms
+let mejorIdaVuelta = Infinity;
+let ultimoRecorte = 0;
+let horasEnvio = [];
+
+function reiniciarEnvio() {
+  enCamino = 0; horasEnvio = []; fotosEnCamino = 3; idaVuelta = 0; mejorIdaVuelta = Infinity;
+}
+
+function fotoConfirmada() {
+  enCamino = Math.max(0, enCamino - 1);
+  const salida = horasEnvio.shift();
+  if (salida === undefined) return;
+  const ahora = performance.now(), v = ahora - salida;
+  idaVuelta = idaVuelta ? idaVuelta * 0.8 + v * 0.2 : v;
+  mejorIdaVuelta = Math.min(v, mejorIdaVuelta + 0.2); // sube de a poco por si la red cambia
+  if (v > mejorIdaVuelta + MARGEN_DEMORA) {
+    if (ahora - ultimoRecorte > idaVuelta) { fotosEnCamino = Math.max(1, fotosEnCamino * 0.75); ultimoRecorte = ahora; }
+  } else if (v < mejorIdaVuelta + MARGEN_DEMORA / 2) {
+    fotosEnCamino = Math.min(FOTOS_EN_CAMINO_MAX_RAPIDO, fotosEnCamino + 0.5);
+  }
+}
+
 let giroEnviado = 0;           // giro de la última foto mandada (para ubicar los marcos)
 
 function bucle() {
   setTimeout(bucle, 15);
   const ahora = performance.now();
   if (!conectado || detenido || pausaDePC || !flujo || video.readyState < 2) return;
-  if (enCamino >= (fotoRapida ? FOTOS_EN_CAMINO_RAPIDO : FOTOS_EN_CAMINO)) {
-    if (ahora - ultimoEnvio < 1500) return; // espera los "ok" (máx. 1,5 s por si se perdieron)
-    enCamino = 0;
+  const permitidas = Math.floor(Math.min(fotosEnCamino, fotoRapida ? FOTOS_EN_CAMINO_MAX_RAPIDO : FOTOS_EN_CAMINO_MAX));
+  if (enCamino >= permitidas) {
+    if (ahora - ultimoEnvio < 4000) return; // espera los "ok" (máx. 4 s por si se perdieron)
+    reiniciarEnvio();
   }
-  if (ahora - ultimoEnvio < (fotoRapida ? MIN_MS_RAPIDO : MIN_MS_ENTRE_FOTOS)) return;
+  const intervalo = Math.max(fotoRapida ? MIN_MS_RAPIDO : MIN_MS_ENTRE_FOTOS, idaVuelta / permitidas);
+  if (ahora - ultimoEnvio < intervalo) return;
   if (conexion.bufferedAmount > 0) return;               // todavía está saliendo la anterior
 
   // Tamaño según la calidad elegida, sin deformar
@@ -270,7 +303,7 @@ function bucle() {
   enCamino++;
   ultimoEnvio = ahora;
   lienzo.toBlob((foto) => {
-    if (foto && conexion.readyState === 1) { conexion.send(foto); fotosEnUnSegundo++; }
+    if (foto && conexion.readyState === 1) { horasEnvio.push(performance.now()); conexion.send(foto); fotosEnUnSegundo++; }
   }, 'image/jpeg', fotoRapida ? 0.6 : 0.7);
 }
 

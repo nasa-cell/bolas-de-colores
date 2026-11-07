@@ -125,8 +125,9 @@ color que proyecta. Si aun así sale un recuadro de más, sube la transparencia.
 720p, sin importar la calidad elegida, y vuelve a la elegida al terminar. Además, un Post-it nuevo aparece a los 250 ms quieto
 en lugar de 500 ms. Sigue habiendo el retraso propio de internet entre el celular y la PC.
 
-Además, el celular ya no espera la respuesta de cada foto: deja hasta 3 fotos en camino, o 5 con la imagen a la vista. Antes,
-con 250 ms de ida y vuelta, llegaban 3,3 fotos por segundo. Si la subida no da abasto, frena solo para no atrasarse.
+Además, el celular ya no espera la respuesta de cada foto: deja varias en camino, repartidas en el tiempo para que no lleguen a
+golpes. Cuántas lo decide midiendo: si las respuestas empiezan a tardar más que lo normal, la subida no da abasto y manda menos,
+porque las fotos en cola atrasan la imagen.
 
 Sigue igual, ahora en `pc/auto-ajuste.js`:
 
