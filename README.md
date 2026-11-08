@@ -50,17 +50,26 @@ En la pestaña **Cromática**:
 2. Observa la telemetría en vivo: el indicador **"En foco"** mostrará en tiempo real el color exacto que el sensor detecta.
 3. Presiona el botón **`Clonar Color de Tarjeta Enfocada`**. El sistema configurará automáticamente el tono (*Hue*), saturación y umbrales de brillo óptimos.
 4. Si requieres ajustar la sensibilidad, calibra el deslizador **Tolerancia de Tono (±ΔH)** o utiliza las calibraciones cromáticas estándar (Amarillo Canario, Verde Lima, Magenta, Naranja, Cian).
+5. Con **A** abierto, si no detecta un Post-it, al tocarlo aprende su color con la luz del momento (quedan en H → Cromática → «Post-its enseñados»).
 
-### 4. Calibración Óptica de Cuatro Puntos (Homografía)
-En la pestaña **Calibración**:
-1. Activa el botón **`Patrón de Alineación`** para desplegar una retícula de calibración de alto contraste sobre la pared.
-2. En la consola, arrastra los 4 vértices numerados (**1, 2, 3 y 4**) hasta encuadrar el perímetro proyectado visible por el sensor.
-3. Desactiva el patrón de alineación al finalizar.
+### 4. Ajuste con A transparencia (reemplaza la calibración de 4 puntos)
+Presiona la tecla **`A`** o el botón **`☰ A`** (junto al de H). Sale un menú a la izquierda:
+1. **Mide la luz sola** al prender la cámara (unos 2 segundos) y avisa si una zona tiene poca luz.
+2. Muestra la imagen en vivo de la cámara, **transparente y a color**. Toca con el puntero cada Post-it de verdad en la pared: la imagen se mueve sola hasta calzar (con 4 o más toques corrige también la perspectiva). **«Deshacer último toque»** quita un toque equivocado.
+3. Pregunta **«Mira: ¿está correcto?»**. Se corrige arrastrando un marco, la imagen o sus esquinas 1 a 4.
+4. Con **Listo** se oculta la imagen y **sugiere de 6 a 8 lugares** numerados para pegar Post-its nuevos. Al pegar en uno, lo capta solo y lo quita de la lista.
 
-### 5. Ajuste Fino de Margen Físico
+* **Mini cámara** (dentro del menú A): arrastra los números 1 a 4 de la mini cámara hasta donde ves esos números de la pared, o toca ahí los Post-its que el menú tapa.
+* **Si se mueve la cámara** (también la del celular), se reajusta sola con los Post-its ya señalados; si no ve al menos 3, pide apretar A y «Volver a ajustar».
+* El ajuste se recuerda al recargar. «Empezar de nuevo» lo rehace desde la luz.
+
+### 5. Botón X al pegar Post-its
+Con el menú de A cerrado, la tecla **`X`** (o el botón **`X`**) vuelve a mostrar las sugerencias y la cámara en vivo transparente, para ver cómo pegas los Post-its. Cada uno que pegas se capta y su lugar sale de la lista. Otra vez X lo oculta todo; las bolas siguen funcionando. Antes de ajustar con A, X solo avisa «Primero ajusta con A».
+
+### 6. Ajuste Fino de Margen Físico
 Utiliza el deslizador **Ajuste Fino de Tamaño (Margen Físico)** (`-30%` a `+30%`) para sincronizar milimétricamente el área de colisión y el delimitador técnico proyectado con el borde del papel físico.
 
-### 6. Dinámica de Esferas Naturales
+### 7. Dinámica de Esferas Naturales
 Las partículas se representan como esferas sólidas físicas con iluminación tridimensional y punto especular, con borrado completo por cuadro para eliminar cualquier efecto de estela o cometa artificial.
 
 ---
@@ -70,6 +79,8 @@ Las partículas se representan como esferas sólidas físicas con iluminación t
 | Tecla | Función Operativa |
 | :---: | :--- |
 | <kbd>H</kbd> | Alternar visibilidad de la consola de control |
+| <kbd>A</kbd> | Abrir / cerrar el menú de A transparencia (ajuste de la cámara con el proyector) |
+| <kbd>X</kbd> | Mostrar / ocultar las sugerencias y la cámara transparente mientras se pegan Post-its |
 | <kbd>F</kbd> | Alternar modo Pantalla Completa para proyector |
 | <kbd>R</kbd> | Purgar y reiniciar partículas en pantalla |
 | <kbd>Espacio</kbd> | Pausar / Reanudar dinámica física |
